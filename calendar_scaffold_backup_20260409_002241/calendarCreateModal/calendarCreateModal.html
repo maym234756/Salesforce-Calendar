@@ -1,0 +1,54 @@
+<template>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container">
+            <header class="slds-modal__header">
+                <h2 class="slds-text-heading_medium">New Calendar Event</h2>
+            </header>
+
+            <div class="slds-modal__content slds-p-around_medium">
+                <lightning-record-edit-form
+                    object-api-name="Calendar_Event__c"
+                    onsuccess={handleSuccess}
+                    onerror={handleError}
+                >
+                    <div class="slds-grid slds-wrap slds-gutters">
+                        <div class="slds-col slds-size_1-of-1">
+                            <lightning-input-field field-name="Name"></lightning-input-field>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-2">
+                            <lightning-input-field field-name="Calendar__c" value={defaultCalendarId}></lightning-input-field>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-2">
+                            <lightning-input-field field-name="Status__c"></lightning-input-field>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-2">
+                            <lightning-input-field field-name="Start__c" value={defaultStart}></lightning-input-field>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-2">
+                            <lightning-input-field field-name="End__c" value={defaultEnd}></lightning-input-field>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-2">
+                            <lightning-input-field field-name="All_Day__c"></lightning-input-field>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-1">
+                            <lightning-input-field field-name="Notes__c"></lightning-input-field>
+                        </div>
+                    </div>
+
+                    <div class="slds-m-top_medium slds-grid slds-grid_align-end slds-gutters_small">
+                        <lightning-button label="Cancel" onclick={handleClose}></lightning-button>
+                        <lightning-button variant="brand" type="submit" label="Save"></lightning-button>
+                    </div>
+                </lightning-record-edit-form>
+            </div>
+        </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+</template>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>End__c</fullName>
+    <type>DateTime</type>
+    <description>End date and time of the event</description>
+    <inlineHelpText>Select the date and time when the event ends.</inlineHelpText>
+    <required>true</required>
+    <securityClassification>Public</securityClassification>
+    <label>End</label>
+</CustomField>

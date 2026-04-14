@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Auto_Expand_Day_Height__c</fullName>
+    <defaultValue>true</defaultValue>
+    <label>Auto Expand Day Height</label>
+    <trackHistory>false</trackHistory>
+    <type>Checkbox</type>
+</CustomField>

@@ -1,0 +1,46 @@
+<template>
+    <div class="header-row">
+        <div>
+            <h2 class="month-title">{rangeLabel}</h2>
+            <div class="event-count">{eventCount} event(s)</div>
+        </div>
+
+        <div class="header-actions">
+            <lightning-radio-group
+                type="button"
+                name="viewMode"
+                label="View"
+                options={viewOptions}
+                value={currentView}
+                onchange={handleViewChange}
+            >
+            </lightning-radio-group>
+
+            <lightning-combobox
+                class="calendar-filter"
+                name="calendarFilter"
+                label="Calendar"
+                value={selectedCalendarId}
+                options={calendarOptions}
+                onchange={handleCalendarChange}
+            >
+            </lightning-combobox>
+
+            <lightning-combobox
+                class="status-filter"
+                name="statusFilter"
+                label="Status"
+                value={selectedStatus}
+                options={statusOptions}
+                onchange={handleStatusChange}
+            >
+            </lightning-combobox>
+
+            <lightning-button label="New Event" variant="brand" onclick={emitNew}></lightning-button>
+            <lightning-button label="Today" onclick={emitToday}></lightning-button>
+            <lightning-button-icon icon-name="utility:refresh" alternative-text="Refresh" onclick={emitRefresh}></lightning-button-icon>
+            <lightning-button-icon icon-name="utility:chevronleft" alternative-text="Previous" onclick={emitPrev}></lightning-button-icon>
+            <lightning-button-icon icon-name="utility:chevronright" alternative-text="Next" onclick={emitNext}></lightning-button-icon>
+        </div>
+    </div>
+</template>

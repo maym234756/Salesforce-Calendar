@@ -1,0 +1,684 @@
+<!--
+  @description       :
+  @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+  @group             :
+  @last modified on  : 04-12-2026
+  @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+-->
+<template>
+    <template if:true={showGear}>
+        <button
+            class="security-gear"
+            type="button"
+            title="Manage calendar security"
+            onclick={openModal}
+        >
+            ⚙
+        </button>
+    </template>
+
+    <template if:true={isOpen}>
+        <section class="slds-modal slds-fade-in-open security-modal">
+            <div class="slds-modal__container security-modal__container">
+                <header class="slds-modal__header">
+                    <button
+                        class="slds-button slds-button_icon slds-modal__close"
+                        title="Close"
+                        onclick={closeModal}
+                    >
+                        <lightning-icon icon-name="utility:close" size="small" alternative-text="Close">
+                        </lightning-icon>
+                    </button>
+                    <h2 class="slds-text-heading_medium">Calendar Security Manager</h2>
+                    <p class="security-modal__subtitle">{selectedUserLabel}</p>
+                </header>
+
+                <div class="slds-modal__content slds-p-around_none">
+                    <template if:true={isBusy}>
+                        <div class="security-loading">
+                            <lightning-spinner size="medium" alternative-text="Loading"></lightning-spinner>
+                        </div>
+                    </template>
+
+                    <template if:false={isBusy}>
+                        <div class="security-layout">
+                            <aside class="security-users">
+                                <div class="security-pane__header">Users</div>
+
+                                <div class="security-pane__search">
+                                    <lightning-input
+                                        type="search"
+                                        label="Search Users"
+                                        value={userSearch}
+                                        onchange={handleUserSearchChange}
+                                    >
+                                    </lightning-input>
+                                </div>
+
+                                <div class="security-users__list">
+                                    <template for:each={filteredUsers} for:item="user">
+                                        <button
+                                            key={user.id}
+                                            class={user.rowClass}
+                                            type="button"
+                                            data-id={user.id}
+                                            onclick={handleSelectUser}
+                                        >
+                                            <span class="security-users__name">{user.name}</span>
+                                            <span class="security-users__meta">
+                                                {user.profileName} • {user.roleName}
+                                            </span>
+                                        </button>
+                                    </template>
+                                </div>
+                            </aside>
+
+                            <section class="security-rules">
+                                <div class="security-tabs">
+                                    <button
+                                        type="button"
+                                        class={accessTabClass}
+                                        onclick={handleAccessTabClick}
+                                    >
+                                        Calendar Access
+                                    </button>
+
+                                    <button
+                                        type="button"
+                                        class={layoutTabClass}
+                                        onclick={handleLayoutTabClick}
+                                    >
+                                        Display Layout
+                                    </button>
+                                </div>
+
+                                <template if:true={isAccessTabActive}>
+                                    <div class="security-pane__header">
+                                        Calendar Views for {selectedUserLabel}
+                                    </div>
+
+                                    <div class="security-pane__search">
+                                        <lightning-input
+                                            type="search"
+                                            label="Search Calendar Views"
+                                            value={calendarSearch}
+                                            onchange={handleCalendarSearchChange}
+                                        >
+                                        </lightning-input>
+                                    </div>
+
+                                    <template if:true={hasVisibleRows}>
+                                        <div class="security-table-wrap">
+                                            <table class="slds-table slds-table_bordered slds-table_cell-buffer security-table">
+                                                <thead>
+                                                    <tr class="slds-line-height_reset">
+                                                        <th scope="col"><div class="slds-truncate">Calendar View</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Owner</div></th>
+                                                        <th scope="col"><div class="slds-truncate">View</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Create</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Edit</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Delete</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Assign Users</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Manage Security</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Active</div></th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <template for:each={visibleRows} for:item="row">
+                                                        <tr key={row.id}>
+                                                            <td>
+                                                                <div class="security-table__title">{row.name}</div>
+                                                                <div class="security-table__sub">
+                                                                    Start: {row.startField} • Display: {row.displayField}
+                                                                </div>
+                                                            </td>
+                                                            <td>
+                                                                <div class="security-table__sub">{row.ownerName}</div>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="canView"
+                                                                    checked={row.canView}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="canCreate"
+                                                                    checked={row.canCreate}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="canEdit"
+                                                                    checked={row.canEdit}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="canDelete"
+                                                                    checked={row.canDelete}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="canAssignUsers"
+                                                                    checked={row.canAssignUsers}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="canManageSecurity"
+                                                                    checked={row.canManageSecurity}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                            <td>
+                                                                <lightning-input
+                                                                    type="checkbox"
+                                                                    variant="label-hidden"
+                                                                    data-id={row.id}
+                                                                    data-field="isActive"
+                                                                    checked={row.isActive}
+                                                                    onchange={handleRuleToggle}
+                                                                >
+                                                                </lightning-input>
+                                                            </td>
+                                                        </tr>
+                                                    </template>
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                    </template>
+
+                                    <template if:false={hasVisibleRows}>
+                                        <div class="security-empty">
+                                            No calendar views match the current search.
+                                        </div>
+                                    </template>
+                                </template>
+
+                                <template if:true={isLayoutTabActive}>
+                                    <div class="security-pane__header">
+                                        Display Layout for {selectedUserLabel}
+                                    </div>
+
+                                    <div class="security-layout-tab">
+                                        <div class="security-layout-form">
+                                            <div class="security-layout-form__field">
+                                                <lightning-combobox
+                                                    label="Default View"
+                                                    value={layoutDraft.defaultView}
+                                                    options={layoutViewOptions}
+                                                    data-field="defaultView"
+                                                    onchange={handleLayoutFieldChange}
+                                                >
+                                                </lightning-combobox>
+                                            </div>
+
+                                            <div class="security-layout-form__field security-layout-form__field--wide">
+                                                <lightning-combobox
+                                                    label="Default Calendar"
+                                                    value={layoutDraft.defaultCalendarViewId}
+                                                    options={layoutCalendarOptions}
+                                                    data-field="defaultCalendarViewId"
+                                                    onchange={handleLayoutFieldChange}
+                                                >
+                                                </lightning-combobox>
+                                            </div>
+
+                                            <div class="security-layout-form__field">
+                                                <lightning-combobox
+                                                    label="Default Status"
+                                                    value={layoutDraft.defaultStatus}
+                                                    options={layoutStatusOptions}
+                                                    data-field="defaultStatus"
+                                                    onchange={handleLayoutFieldChange}
+                                                >
+                                                </lightning-combobox>
+                                            </div>
+                                        </div>
+
+                                        <div class="security-layout-summary security-layout-summary--spaced">
+                                            <div class="security-layout-summary__title">Selected Users Visibility</div>
+                                            <div class="security-layout-summary__line">
+                                                Choose which active users appear in this person's Selected Users picker.
+                                            </div>
+
+                                            <div class="security-approved-users">
+                                                <button
+                                                    class="security-approved-users__toggle"
+                                                    type="button"
+                                                    onclick={toggleApprovedSelectedUsersMenu}
+                                                >
+                                                    {approvedSelectedUsersButtonLabel}
+                                                </button>
+
+                                                <div class="security-approved-users__summary">
+                                                    {approvedSelectedUsersSummary}
+                                                </div>
+
+                                                <template if:true={isApprovedSelectedUsersOpen}>
+                                                    <div class="security-approved-users__menu">
+                                                        <lightning-input
+                                                            type="search"
+                                                            label="Search Approved Users"
+                                                            value={approvedSelectedUsersSearch}
+                                                            onchange={handleApprovedSelectedUsersSearchChange}
+                                                        >
+                                                        </lightning-input>
+
+                                                        <div class="security-approved-users__list">
+                                                            <template if:true={hasApprovedSelectedUserOptions}>
+                                                                <template
+                                                                    for:each={approvedSelectedUserOptions}
+                                                                    for:item="user"
+                                                                >
+                                                                    <div
+                                                                        key={user.id}
+                                                                        class="security-approved-users__item"
+                                                                    >
+                                                                        <lightning-input
+                                                                            type="checkbox"
+                                                                            label={user.name}
+                                                                            checked={user.checked}
+                                                                            data-id={user.id}
+                                                                            onchange={handleAllowedSelectedUserToggle}
+                                                                        >
+                                                                        </lightning-input>
+
+                                                                        <div class="security-approved-users__meta">
+                                                                            {user.meta}
+                                                                        </div>
+                                                                    </div>
+                                                                </template>
+                                                            </template>
+
+                                                            <template if:false={hasApprovedSelectedUserOptions}>
+                                                                <div class="security-approved-users__empty">
+                                                                    No users match the current search.
+                                                                </div>
+                                                            </template>
+                                                        </div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </div>
+
+                                        <div class="security-layout-summary">
+                                            <div class="security-layout-summary__title">Toolbar Buttons</div>
+                                        </div>
+
+                                        <div class="security-layout-grid">
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Security button"
+                                                        checked={layoutDraft.showSecurityButton}
+                                                        data-field="showSecurityButton"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showSecurityButton}
+                                                        data-field="showSecurityButton"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Refresh button"
+                                                        checked={layoutDraft.showRefreshButton}
+                                                        data-field="showRefreshButton"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showRefreshButton}
+                                                        data-field="showRefreshButton"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Today button"
+                                                        checked={layoutDraft.showTodayButton}
+                                                        data-field="showTodayButton"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showTodayButton}
+                                                        data-field="showTodayButton"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Prev / Next buttons"
+                                                        checked={layoutDraft.showPrevNextButtons}
+                                                        data-field="showPrevNextButtons"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showPrevNextButtons}
+                                                        data-field="showPrevNextButtons"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show New button"
+                                                        checked={layoutDraft.showNewButton}
+                                                        data-field="showNewButton"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showNewButton}
+                                                        data-field="showNewButton"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Filters button"
+                                                        checked={layoutDraft.showFiltersButton}
+                                                        data-field="showFiltersButton"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showFiltersButton}
+                                                        data-field="showFiltersButton"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="security-layout-summary">
+                                            <div class="security-layout-summary__title">Board Layout</div>
+                                        </div>
+
+                                        <div class="security-layout-grid">
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Select Users panel"
+                                                        checked={layoutDraft.showSelectUsersBox}
+                                                        data-field="showSelectUsersBox"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showSelectUsersBox}
+                                                        data-field="showSelectUsersBox"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show View / Calendar / Status controls"
+                                                        checked={layoutDraft.showFilterControls}
+                                                        data-field="showFilterControls"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showFilterControls}
+                                                        data-field="showFilterControls"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show weekends"
+                                                        checked={layoutDraft.showWeekends}
+                                                        data-field="showWeekends"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showWeekends}
+                                                        data-field="showWeekends"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Auto-expand day height"
+                                                        checked={layoutDraft.autoExpandDayHeight}
+                                                        data-field="autoExpandDayHeight"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.autoExpandDayHeight}
+                                                        data-field="autoExpandDayHeight"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Wrap event titles"
+                                                        checked={layoutDraft.wrapEventTitles}
+                                                        data-field="wrapEventTitles"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.wrapEventTitles}
+                                                        data-field="wrapEventTitles"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Compact event density"
+                                                        checked={layoutDraft.compactEventDensity}
+                                                        data-field="compactEventDensity"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.compactEventDensity}
+                                                        data-field="compactEventDensity"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Layout preference active"
+                                                        checked={layoutDraft.isActive}
+                                                        data-field="isActive"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.isActive}
+                                                        data-field="isActive"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div class="security-layout-summary">
+                                            <div class="security-layout-summary__title">Current Saved Defaults</div>
+                                            <div class="security-layout-summary__line">
+                                                Default View: <strong>{layoutDraft.defaultView}</strong>
+                                            </div>
+                                            <div class="security-layout-summary__line">
+                                                Default Calendar: <strong>{currentLayoutCalendarName}</strong>
+                                            </div>
+                                            <div class="security-layout-summary__line">
+                                                Default Status: <strong>{currentLayoutStatusName}</strong>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </template>
+                            </section>
+                        </div>
+                    </template>
+                </div>
+
+                <footer class="slds-modal__footer">
+                    <button class="slds-button slds-button_neutral" onclick={closeModal}>
+                        Cancel
+                    </button>
+
+                    <button
+                        class="slds-button slds-button_brand"
+                        onclick={handleSave}
+                        disabled={isSaving}
+                    >
+                        {saveButtonLabel}
+                    </button>
+                </footer>
+            </div>
+        </section>
+
+        <div class="slds-backdrop slds-backdrop_open"></div>
+    </template>
+</template>

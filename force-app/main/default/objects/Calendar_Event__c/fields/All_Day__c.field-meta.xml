@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>All_Day__c</fullName>
+    <type>Checkbox</type>
+    <defaultValue>false</defaultValue>
+    <description>Indicates wether the event lasts all day.</description>
+    <inlineHelpText>Check this box if the event does not use specific start and end times.</inlineHelpText>
+    <securityClassification>Public</securityClassification>
+    <label>All Day</label>
+</CustomField>

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<AuthProvider xmlns="http://soap.sforce.com/2006/04/metadata">
+	<friendlyName>Google</friendlyName>
+	<providerType>OpenIdConnect</providerType>
+	<consumerKey>REPLACE_WITH_GOOGLE_OAUTH_CLIENT_ID</consumerKey>
+	<consumerSecret>REPLACE_WITH_GOOGLE_OAUTH_CLIENT_SECRET</consumerSecret>
+	<authorizeUrl>https://accounts.google.com/o/oauth2/v2/auth</authorizeUrl>
+	<tokenUrl>https://oauth2.googleapis.com/token</tokenUrl>
+	<userinfoUrl>https://openidconnect.googleapis.com/v1/userinfo</userinfoUrl>
+	<defaultScopes>openid email profile https://www.googleapis.com/auth/calendar https://www.googleapis.com/auth/calendar.readonly</defaultScopes>
+	<sendAccessTokenInHeader>true</sendAccessTokenInHeader>
+</AuthProvider>

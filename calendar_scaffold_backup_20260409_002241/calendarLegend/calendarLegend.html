@@ -1,0 +1,12 @@
+<template>
+    <template if:true={hasItems}>
+        <div class="legend">
+            <template for:each={items} for:item="item">
+                <div key={item.id} class="legend-item">
+                    <span class="legend-swatch" style={item.styleText}></span>
+                    <span>{item.name}</span>
+                </div>
+            </template>
+        </div>
+    </template>
+</template>

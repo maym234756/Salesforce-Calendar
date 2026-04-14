@@ -1,0 +1,550 @@
+:host {
+    display: block;
+}
+
+.toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 17.5rem;
+    gap: 0.7rem;
+    align-items: start;
+    padding: 0.18rem 0.55rem 0.32rem;
+    min-height: 0;
+    position: relative;
+    z-index: 5;
+}
+
+.toolbar--single-column {
+    grid-template-columns: minmax(0, 1fr);
+}
+
+.toolbar__main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    min-height: 0;
+}
+
+.toolbar__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.22rem;
+}
+
+.toolbar__filter-anchor {
+    position: relative;
+    display: inline-flex;
+}
+
+.toolbar__pdf-action {
+    align-self: end;
+}
+
+c-calendar-security-manager {
+    display: inline-flex;
+    flex: 0 0 auto;
+    align-items: center;
+}
+
+.toolbar__filter-menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    left: 0;
+    z-index: 25;
+    width: 20rem;
+    border: 1px solid #d8dde6;
+    border-radius: 0.55rem;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+}
+
+.toolbar__filter-menu-header {
+    padding: 0.55rem 0.7rem 0.45rem;
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #181818;
+    border-bottom: 1px solid #eef1f6;
+}
+
+.toolbar__filter-menu-body {
+    padding: 0.55rem 0.7rem 0.35rem;
+}
+
+.toolbar__filter-menu-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.45rem 0.7rem 0.65rem;
+    border-top: 1px solid #eef1f6;
+}
+
+.toolbar__btn,
+.toolbar__sync,
+.toolbar__disconnect,
+.user-panel__trigger,
+.user-menu__done,
+.user-chip__remove,
+.user-chip__name {
+    appearance: none;
+    border: 1px solid #c9c9c9;
+    background: #ffffff;
+    color: #1f1f1f;
+    border-radius: 0.35rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+        background 120ms ease,
+        border-color 120ms ease,
+        box-shadow 120ms ease,
+        transform 120ms ease;
+}
+
+.toolbar__btn,
+.toolbar__sync,
+.toolbar__disconnect {
+    padding: 0.28rem 0.46rem;
+    font-size: 0.68rem;
+    line-height: 1.05;
+    min-height: 1.72rem;
+}
+
+.toolbar__btn--subtle {
+    background: #f7f9fb;
+}
+
+.toolbar__btn:hover,
+.toolbar__btn:focus,
+.toolbar__sync:hover,
+.toolbar__sync:focus,
+.toolbar__disconnect:hover,
+.toolbar__disconnect:focus,
+.user-panel__trigger:hover,
+.user-panel__trigger:focus,
+.user-menu__done:hover,
+.user-menu__done:focus,
+.user-chip__remove:hover,
+.user-chip__remove:focus,
+.user-chip__name:hover,
+.user-chip__name:focus {
+    background: #f7f9fb;
+    border-color: #9fb7d6;
+    box-shadow: 0 0 0 1px rgba(1, 118, 211, 0.1);
+    outline: none;
+}
+
+.toolbar__btn:active,
+.toolbar__sync:active,
+.toolbar__disconnect:active {
+    transform: translateY(1px);
+}
+
+.toolbar__btn--primary {
+    background: #0176d3;
+    border-color: #0176d3;
+    color: #ffffff;
+}
+
+.toolbar__btn--primary:hover,
+.toolbar__btn--primary:focus {
+    background: #0167ba;
+    border-color: #0167ba;
+}
+
+.user-panel {
+    border: 1px solid #d8dde6;
+    border-radius: 0.55rem;
+    background: #ffffff;
+    padding: 0.45rem 0.65rem 0.5rem;
+    min-height: 5.3rem;
+}
+
+.user-panel--compact {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    max-height: min(16.5rem, 30vh);
+    display: flex;
+    flex-direction: column;
+}
+
+.user-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.65rem;
+    margin-bottom: 0.45rem;
+}
+
+.user-panel__title {
+    font-size: 0.84rem;
+    font-weight: 700;
+    color: #181818;
+    line-height: 1.15;
+}
+
+.user-panel__meta {
+    margin-top: 0.08rem;
+    font-size: 0.72rem;
+    color: #5f5f5f;
+}
+
+.user-panel__menu-anchor {
+    position: relative;
+    flex: 0 0 auto;
+}
+
+.user-panel__trigger {
+    padding: 0.28rem 0.55rem;
+    font-size: 0.69rem;
+    line-height: 1.1;
+    min-height: 1.72rem;
+}
+
+.user-panel__body {
+    max-height: 14rem;
+    overflow: auto;
+}
+
+.user-panel__body--compact {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.user-panel__placeholder {
+    font-size: 0.74rem;
+    line-height: 1.3;
+    color: #6b6b6b;
+    padding-right: 0.35rem;
+}
+
+.user-chip-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(7.5rem, 1fr));
+    gap: 0.35rem;
+    align-items: stretch;
+}
+
+.user-chip-card-wrap {
+    min-width: 0;
+}
+
+.user-chip {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+        "name remove"
+        "meta remove";
+    align-items: center;
+    column-gap: 0.3rem;
+    row-gap: 0.08rem;
+    border: 1px solid #d8dde6;
+    background: #f8f9fb;
+    border-radius: 0.65rem;
+    padding: 0.32rem 0.36rem 0.32rem 0.44rem;
+    width: 100%;
+    min-width: 0;
+    min-height: 3rem;
+}
+
+.user-chip--active {
+    border-color: #7fb3f3;
+    background: #eef5fd;
+}
+
+.user-chip__name {
+    grid-area: name;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font-size: 0.71rem;
+    line-height: 1.1;
+    box-shadow: none;
+    color: #1f1f1f;
+    text-align: left;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.user-chip__name:hover,
+.user-chip__name:focus {
+    background: transparent;
+    border-color: transparent;
+    box-shadow: none;
+    text-decoration: underline;
+}
+
+.user-chip__meta {
+    grid-area: meta;
+    font-size: 0.62rem;
+    color: #5f5f5f;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+}
+
+.user-chip__remove {
+    grid-area: remove;
+    width: 1.1rem;
+    height: 1.1rem;
+    min-width: 1.1rem;
+    padding: 0;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    line-height: 1;
+    justify-self: end;
+}
+
+.user-calendar-panel {
+    margin-top: 0.55rem;
+    border: 1px solid #d8dde6;
+    border-radius: 0.55rem;
+    background: #fbfcfe;
+    overflow: hidden;
+    flex: 0 0 auto;
+}
+
+.user-calendar-panel__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.6rem;
+    padding: 0.55rem 0.7rem 0.45rem;
+    border-bottom: 1px solid #eef1f6;
+}
+
+.user-calendar-panel__title {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #181818;
+}
+
+.user-calendar-panel__meta {
+    margin-top: 0.08rem;
+    font-size: 0.69rem;
+    color: #5f5f5f;
+}
+
+.user-calendar-panel__list {
+    max-height: 10rem;
+    overflow: auto;
+    padding: 0.35rem 0.7rem 0.35rem;
+}
+
+.user-calendar-panel__item {
+    padding: 0.05rem 0;
+}
+
+.user-calendar-panel__empty {
+    padding: 0.75rem 0.7rem;
+    font-size: 0.74rem;
+    color: #6b6b6b;
+}
+
+.user-menu {
+    position: absolute;
+    top: calc(100% + 0.35rem);
+    right: 0;
+    z-index: 60;
+    width: 18rem;
+    border: 1px solid #d8dde6;
+    border-radius: 0.55rem;
+    background: #ffffff;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+    overflow: hidden;
+}
+
+.user-menu__header {
+    padding: 0.55rem 0.7rem 0.4rem;
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #181818;
+    border-bottom: 1px solid #eef1f6;
+}
+
+.user-menu__list {
+    max-height: 14rem;
+    overflow: auto;
+    padding: 0.35rem 0.7rem 0.2rem;
+}
+
+.user-menu__item {
+    padding: 0.05rem 0;
+}
+
+.user-menu__empty {
+    padding: 0.75rem 0.7rem;
+    font-size: 0.74rem;
+    color: #6b6b6b;
+}
+
+.user-menu__footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.55rem;
+    padding: 0.45rem 0.7rem 0.65rem;
+    border-top: 1px solid #eef1f6;
+}
+
+.user-menu__hint {
+    font-size: 0.68rem;
+    line-height: 1.25;
+    color: #6b6b6b;
+}
+
+.user-menu__done {
+    padding: 0.24rem 0.55rem;
+    font-size: 0.69rem;
+    line-height: 1.1;
+    min-height: 1.65rem;
+    white-space: nowrap;
+}
+
+.toolbar__side {
+    display: flex;
+    flex-direction: column;
+    gap: 0.38rem;
+    width: min(17.5rem, 100%);
+    justify-self: end;
+}
+
+.toolbar__google-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    width: 100%;
+    border: 1px solid #d8dde6;
+    border-radius: 0.55rem;
+    background: #ffffff;
+    padding: 0.55rem;
+}
+
+.toolbar__google-title {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #181818;
+    text-align: left;
+}
+
+.toolbar__sync,
+.toolbar__disconnect {
+    width: 100%;
+    justify-content: center;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.2;
+    min-height: 2.2rem;
+}
+
+.toolbar__sync--secondary {
+    background: #f7f9fb;
+}
+
+.toolbar__disconnect {
+    border-style: dashed;
+}
+
+.toolbar__sync[disabled] {
+    cursor: not-allowed;
+    opacity: 0.65;
+    background: #f3f3f3;
+}
+
+.toolbar__badge {
+    display: block;
+    width: 100%;
+    border: 1px solid #d8dde6;
+    background: #f8f9fb;
+    color: #2e2e2e;
+    border-radius: 0.35rem;
+    padding: 0.42rem 0.5rem;
+    font-size: 0.69rem;
+    line-height: 1.25;
+    word-break: break-word;
+}
+
+.toolbar__badge--success {
+    background: #eefbf3;
+    border-color: #91db8b;
+    color: #194e31;
+}
+
+.toolbar__badge--warning {
+    background: #fef7e6;
+    border-color: #f9c97a;
+    color: #6f4f00;
+}
+
+.toolbar__badge--error {
+    background: #fff1f0;
+    border-color: #ea8c89;
+    color: #8a1f11;
+}
+
+@media (max-width: 1200px) {
+    .toolbar {
+        grid-template-columns: 1fr;
+    }
+
+    .toolbar__side {
+        justify-self: start;
+        width: min(22rem, 100%);
+    }
+
+    .user-menu {
+        left: 0;
+        right: auto;
+    }
+
+    .toolbar__filter-menu {
+        left: 0;
+        right: auto;
+    }
+
+    .user-panel--compact {
+        width: 100%;
+        max-width: 100%;
+    }
+}
+
+@media (max-width: 900px) {
+    .user-chip-grid {
+        grid-template-columns: repeat(auto-fit, minmax(7rem, 1fr));
+    }
+}
+
+@media (max-width: 700px) {
+    .toolbar {
+        padding: 0.3rem 0.45rem 0.45rem;
+    }
+
+    .user-panel__header,
+    .user-calendar-panel__header {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+
+    .user-menu,
+    .toolbar__filter-menu {
+        width: min(20rem, calc(100vw - 2rem));
+    }
+
+    .user-chip-grid {
+        grid-template-columns: repeat(auto-fit, minmax(6.5rem, 1fr));
+    }
+}
+
+@media (max-width: 480px) {
+    .user-chip-grid {
+        grid-template-columns: 1fr;
+    }
+}

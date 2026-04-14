@@ -1,0 +1,131 @@
+:host {
+    display: block;
+    height: 100%;
+    min-height: 0;
+    box-sizing: border-box;
+    overflow: hidden;
+}
+
+.board-wrap {
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
+    box-sizing: border-box;
+    height: calc(100dvh - 12.2rem);
+    max-height: calc(100dvh - 12.2rem);
+    min-height: calc(100dvh - 12.2rem);
+    padding: 0 0.35rem 0.35rem;
+    overflow: hidden;
+}
+
+.board-toolbar-shell {
+    position: relative;
+    z-index: 4;
+    min-height: 0;
+    overflow: visible;
+}
+
+.board-content {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    position: relative;
+    z-index: 1;
+}
+
+.month-year-label {
+    flex: 0 0 auto;
+    margin-top: 0.05rem;
+    margin-bottom: 0.2rem;
+    font-size: 0.95rem;
+    line-height: 1.2;
+}
+
+.board-loading {
+    display: flex;
+    flex: 1 1 auto;
+    align-items: center;
+    justify-content: center;
+    min-height: 24rem;
+}
+
+.board-view-region {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.board-view-region > c-calendar-grid,
+.board-view-region > c-calendar-agenda {
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+.google-connect-modal {
+    z-index: 9005;
+}
+
+.google-connect-modal__copy {
+    font-size: 0.92rem;
+    line-height: 1.45;
+    color: #181818;
+}
+
+.google-connect-modal__status {
+    margin-top: 0.85rem;
+    padding: 0.75rem;
+    border: 1px solid #d8dde6;
+    border-radius: 0.5rem;
+    background: #f8f9fb;
+    font-size: 0.82rem;
+    line-height: 1.4;
+    color: #3e3e3c;
+}
+
+.google-sync-modal__field {
+    display: block;
+}
+
+.google-sync-modal__listbox {
+    min-height: 14rem;
+    max-height: 16rem;
+    padding-right: 0;
+    overflow-y: auto;
+}
+
+.google-connect-modal__footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.5rem;
+}
+
+@media (max-width: 900px) {
+    .board-wrap {
+        height: calc(100dvh - 11.45rem);
+        max-height: calc(100dvh - 11.45rem);
+        min-height: calc(100dvh - 11.45rem);
+    }
+}
+
+@media (max-width: 640px) {
+    .board-wrap {
+        height: calc(100dvh - 10.7rem);
+        max-height: calc(100dvh - 10.7rem);
+        min-height: calc(100dvh - 10.7rem);
+        padding: 0 0.2rem 0.25rem;
+    }
+
+    .month-year-label {
+        font-size: 0.9rem;
+    }
+}

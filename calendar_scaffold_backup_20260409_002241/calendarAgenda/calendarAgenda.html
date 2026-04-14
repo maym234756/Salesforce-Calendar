@@ -1,0 +1,44 @@
+<template>
+    <template if:true={hasGroups}>
+        <div class="agenda-list">
+            <template for:each={groups} for:item="group">
+                <section key={group.key} class="agenda-group">
+                    <div class="agenda-group-header">
+                        <div class="agenda-date">{group.label}</div>
+                        <button
+                            type="button"
+                            class="agenda-add-btn"
+                            data-date={group.key}
+                            onclick={handleDayAdd}
+                        >
+                            + Add Event
+                        </button>
+                    </div>
+
+                    <div class="agenda-items">
+                        <template for:each={group.events} for:item="event">
+                            <button
+                                key={event.id}
+                                type="button"
+                                class="agenda-row"
+                                data-id={event.id}
+                                onclick={handleEventOpen}
+                            >
+                                <span class="agenda-color" style={event.colorBarStyle}></span>
+                                <div class="agenda-time">{event.timeLabel}</div>
+                                <div class="agenda-main">
+                                    <div class="agenda-title">{event.name}</div>
+                                    <div class="agenda-meta">{event.calendarName} â€¢ {event.statusLabel}</div>
+                                </div>
+                            </button>
+                        </template>
+                    </div>
+                </section>
+            </template>
+        </div>
+    </template>
+
+    <template if:false={hasGroups}>
+        <div class="agenda-empty">No events found for this range.</div>
+    </template>
+</template>

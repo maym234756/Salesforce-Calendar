@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Package xmlns="http://soap.sforce.com/2006/04/metadata">
+    <types>
+        <members>TeamCalendarBoardController</members>
+        <members>GoogleCalendarSyncService</members>
+        <name>ApexClass</name>
+    </types>
+    <types>
+        <members>teamCalendarBoard</members>
+        <members>calendarToolbar</members>
+        <members>calendarGrid</members>
+        <members>calendarAgenda</members>
+        <members>calendarLegend</members>
+        <members>calendarCreateModal</members>
+        <members>calendarEventDrawer</members>
+        <members>calendarUtils</members>
+        <name>LightningComponentBundle</name>
+    </types>
+    <version>66.0</version>
+</Package>

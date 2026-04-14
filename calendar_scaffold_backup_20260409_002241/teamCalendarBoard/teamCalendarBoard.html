@@ -1,0 +1,75 @@
+<!--
+  @description       : 
+  @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+  @group             : 
+  @last modified on  : 04-09-2026
+  @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+-->
+<template>
+    <lightning-card title="Team Calendar Board" icon-name="standard:event">
+        <div class="board-wrap">
+            <c-calendar-toolbar
+                range-label={rangeLabel}
+                event-count={eventCount}
+                current-view={currentView}
+                view-options={viewOptions}
+                selected-calendar-id={selectedCalendarId}
+                calendar-options={calendarOptions}
+                selected-status={selectedStatus}
+                status-options={statusOptions}
+                onviewchange={handleViewChange}
+                oncalendarchange={handleCalendarChange}
+                onstatuschange={handleStatusChange}
+                ontoday={handleToday}
+                onrefresh={handleRefresh}
+                onprev={handlePrev}
+                onnext={handleNext}
+                onnew={handleHeaderNewEvent}
+            >
+            </c-calendar-toolbar>
+
+            <c-calendar-legend items={legendItems}></c-calendar-legend>
+
+            <template if:true={error}>
+                <div class="error-box">{error}</div>
+            </template>
+
+            <template if:true={isLoading}>
+                <div class="loading-box">Loading calendar...</div>
+            </template>
+
+            <template if:false={isLoading}>
+                <template if:true={isGridView}>
+                    <c-calendar-grid
+                        weeks={weeks}
+                        single-row={isWeekView}
+                        ondayselect={handleDaySelect}
+                        oneventopen={handleEventOpen}
+                    >
+                    </c-calendar-grid>
+                </template>
+
+                <template if:true={isAgendaView}>
+                    <c-calendar-agenda
+                        groups={agendaGroups}
+                        ondayselect={handleDaySelect}
+                        oneventopen={handleEventOpen}
+                    >
+                    </c-calendar-agenda>
+                </template>
+            </template>
+        </div>
+    </lightning-card>
+
+    <template if:true={showCreateModal}>
+        <c-calendar-create-modal
+            default-calendar-id={defaultCalendarId}
+            default-start={defaultStart}
+            default-end={defaultEnd}
+            onclose={handleCloseModal}
+            onsuccess={handleCreateSuccess}
+            onerror={handleCreateError}
+        >
+        </c-calendar-create-modal>
+    </template>
+</template>

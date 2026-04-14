@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Color__c</fullName>
+    <type>Text</type>
+    <length>20</length>
+    <description>Hex color code used to display this calendar</description>
+    <inlineHelpText>Enter a hex color value for this calendar, for example #1E90FF.</inlineHelpText>
+    <required>false</required>
+    <unique>false</unique>
+    <securityClassification>Public</securityClassification>
+    <label>Color</label>
+</CustomField>

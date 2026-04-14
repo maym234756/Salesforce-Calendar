@@ -1,0 +1,148 @@
+<!--
+  @description       : 
+  @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+  @group             : 
+  @last modified on  : 04-09-2026
+  @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+-->
+<template>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container modal-shell">
+            <header class="slds-modal__header modal-header">
+                <lightning-button-icon
+                    class="slds-modal__close"
+                    icon-name="utility:close"
+                    alternative-text="Close"
+                    onclick={handleClose}
+                ></lightning-button-icon>
+
+                <div class="modal-title-row">
+                    <div>
+                        <h2 class="slds-text-heading_medium">New Calendar Event</h2>
+                        <p class="slds-text-body_small modal-subtitle">
+                            Faster scheduling with cleaner defaults and quick duration presets.
+                        </p>
+                    </div>
+                    <span class="duration-pill">{durationSummary}</span>
+                </div>
+            </header>
+
+            <div class="slds-modal__content slds-p-around_medium">
+                <lightning-record-edit-form
+                    object-api-name="Calendar_Event__c"
+                    onload={handleFormLoad}
+                    onsuccess={handleSuccess}
+                    onerror={handleError}
+                >
+                    <section class="form-panel slds-m-bottom_medium">
+                        <div class="section-title">Quick Setup</div>
+                        <p class="section-help">{timeHint}</p>
+
+                        <template if:true={isTimedEvent}>
+                            <div class="preset-row">
+                                <template for:each={presetButtons} for:item="preset">
+                                    <button
+                                        key={preset.key}
+                                        type="button"
+                                        class={preset.className}
+                                        data-minutes={preset.minutes}
+                                        onclick={handleDurationClick}
+                                    >
+                                        {preset.label}
+                                    </button>
+                                </template>
+                            </div>
+                        </template>
+                    </section>
+
+                    <div class="slds-grid slds-wrap slds-gutters">
+                        <div class="slds-col slds-size_1-of-1">
+                            <section class="form-panel">
+                                <div class="section-title">Event Details</div>
+                                <div class="slds-grid slds-wrap slds-gutters">
+                                    <div class="slds-col slds-size_1-of-1">
+                                        <lightning-input-field
+                                            data-field="Name"
+                                            field-name="Name"
+                                        ></lightning-input-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-input-field
+                                            data-field="Calendar__c"
+                                            field-name="Calendar__c"
+                                            value={defaultCalendarId}
+                                        ></lightning-input-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-input-field
+                                            data-field="Status__c"
+                                            field-name="Status__c"
+                                        ></lightning-input-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1">
+                                        <lightning-input-field
+                                            data-field="Notes__c"
+                                            field-name="Notes__c"
+                                        ></lightning-input-field>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-1">
+                            <section class="form-panel">
+                                <div class="section-title">Schedule</div>
+                                <div class="slds-grid slds-wrap slds-gutters">
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                        <lightning-input-field
+                                            data-field="All_Day__c"
+                                            field-name="All_Day__c"
+                                            onchange={handleAllDayChange}
+                                        ></lightning-input-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                        <lightning-input-field
+                                            data-field="Start__c"
+                                            field-name="Start__c"
+                                            value={resolvedDefaultStart}
+                                            onchange={handleStartChange}
+                                        ></lightning-input-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                        <lightning-input-field
+                                            data-field="End__c"
+                                            field-name="End__c"
+                                            value={resolvedDefaultEnd}
+                                            onchange={handleEndChange}
+                                        ></lightning-input-field>
+                                    </div>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+
+                    <footer class="slds-modal__footer modal-footer">
+                        <lightning-button
+                            type="button"
+                            label="Cancel"
+                            onclick={handleClose}
+                        ></lightning-button>
+
+                        <lightning-button
+                            variant="brand"
+                            type="submit"
+                            label="Save Event"
+                        ></lightning-button>
+                    </footer>
+                </lightning-record-edit-form>
+            </div>
+        </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+</template>

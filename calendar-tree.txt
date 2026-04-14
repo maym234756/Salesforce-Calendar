@@ -1,0 +1,46 @@
+force-app/main/default/lwc/
+  teamCalendarBoard/
+    teamCalendarBoard.html
+    teamCalendarBoard.js
+    teamCalendarBoard.css
+    teamCalendarBoard.js-meta.xml
+
+  calendarToolbar/
+    calendarToolbar.html
+    calendarToolbar.js
+    calendarToolbar.css
+    calendarToolbar.js-meta.xml
+
+  calendarLegend/
+    calendarLegend.html
+    calendarLegend.js
+    calendarLegend.css
+    calendarLegend.js-meta.xml
+
+  calendarGrid/
+    calendarGrid.html
+    calendarGrid.js
+    calendarGrid.css
+    calendarGrid.js-meta.xml
+
+  calendarAgenda/
+    calendarAgenda.html
+    calendarAgenda.js
+    calendarAgenda.css
+    calendarAgenda.js-meta.xml
+
+  calendarCreateModal/
+    calendarCreateModal.html
+    calendarCreateModal.js
+    calendarCreateModal.css
+    calendarCreateModal.js-meta.xml
+
+  calendarEventDrawer/
+    calendarEventDrawer.html
+    calendarEventDrawer.js
+    calendarEventDrawer.css
+    calendarEventDrawer.js-meta.xml
+
+  calendarUtils/
+    calendarUtils.js
+    calendarUtils.js-meta.xml

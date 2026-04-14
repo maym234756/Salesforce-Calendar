@@ -1,0 +1,263 @@
+<apex:page
+    controller="TeamCalendarPdfController"
+    renderAs="pdf"
+    showHeader="false"
+    sidebar="false"
+    standardStylesheets="false"
+    applyHtmlTag="false"
+    applyBodyTag="false"
+>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <style>
+        @page {
+            size: landscape;
+            margin: 0.45in;
+        }
+
+        body {
+            font-family: Helvetica, Arial, sans-serif;
+            color: #1f1f1f;
+            font-size: 11px;
+        }
+
+        .header {
+            margin-bottom: 12px;
+        }
+
+        .title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .subtitle {
+            font-size: 10px;
+            color: #5f5f5f;
+            margin-bottom: 8px;
+        }
+
+        .meta {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 10px;
+        }
+
+        .meta td {
+            padding: 3px 6px 3px 0;
+            vertical-align: top;
+        }
+
+        .grid,
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .grid th,
+        .grid td,
+        .data-table th,
+        .data-table td {
+            border: 1px solid #d8dde6;
+        }
+
+        .grid th,
+        .data-table th {
+            background: #f3f6f9;
+            padding: 6px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        .grid td {
+            vertical-align: top;
+            height: 86px;
+            padding: 4px;
+        }
+
+        .day-cell-muted {
+            background: #f6f7f9;
+            color: #8a8a8a;
+        }
+
+        .day-label {
+            font-weight: bold;
+            margin-bottom: 4px;
+        }
+
+        .event-pill {
+            background: #eef3f8;
+            border: 1px solid #d8dde6;
+            border-radius: 3px;
+            font-size: 9px;
+            line-height: 1.25;
+            margin-bottom: 3px;
+            padding: 3px 4px;
+            word-wrap: break-word;
+        }
+
+        .section {
+            margin-top: 10px;
+        }
+
+        .agenda-group {
+            margin-bottom: 10px;
+            border: 1px solid #d8dde6;
+        }
+
+        .agenda-header {
+            background: #f3f6f9;
+            padding: 6px 8px;
+            font-weight: bold;
+        }
+
+        .agenda-row {
+            padding: 6px 8px;
+            border-top: 1px solid #eef1f6;
+        }
+
+        .empty {
+            padding: 10px 0;
+            color: #5f5f5f;
+        }
+
+        .data-table td {
+            padding: 6px 8px;
+            vertical-align: top;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <div class="title">{!documentTitle}</div>
+        <div class="subtitle">Generated from Team Calendar Board</div>
+        <table class="meta">
+            <tr>
+                <td><strong>View:</strong> {!currentView}</td>
+                <td><strong>Range:</strong> {!rangeLabel}</td>
+                <td><strong>Calendar:</strong> {!selectedCalendarLabel}</td>
+            </tr>
+            <tr>
+                <td><strong>Status:</strong> {!selectedStatusLabel}</td>
+                <td><strong>Selected Users:</strong> {!selectedUserLabelText}</td>
+                <td><strong>Event Count:</strong> {!eventCount}</td>
+            </tr>
+        </table>
+    </div>
+
+    <apex:outputPanel rendered="{!isGridView}">
+        <table class="grid">
+            <thead>
+                <tr>
+                    <apex:repeat value="{!weekdayHeaders}" var="header">
+                        <th>{!header}</th>
+                    </apex:repeat>
+                </tr>
+            </thead>
+            <tbody>
+                <apex:repeat value="{!weeks}" var="week">
+                    <tr>
+                        <apex:repeat value="{!week.days}" var="day">
+                            <td class="{!day.cellClass}">
+                                <div class="day-label">{!day.label}</div>
+                                <apex:repeat value="{!day.events}" var="eventRow">
+                                    <div class="event-pill">{!eventRow.displayLabel}</div>
+                                </apex:repeat>
+                                <apex:outputPanel rendered="{!day.showMore}">
+                                    <div class="event-pill">+ {!day.hiddenCount} more</div>
+                                </apex:outputPanel>
+                            </td>
+                        </apex:repeat>
+                    </tr>
+                </apex:repeat>
+            </tbody>
+        </table>
+    </apex:outputPanel>
+
+    <apex:outputPanel rendered="{!isAgendaView}">
+        <apex:outputPanel rendered="{!hasAgendaGroups}">
+            <apex:repeat value="{!agendaGroups}" var="group">
+                <div class="agenda-group">
+                    <div class="agenda-header">{!group.label} ({!group.countLabel})</div>
+                    <apex:repeat value="{!group.events}" var="eventRow">
+                        <div class="agenda-row">
+                            <strong>{!eventRow.name}</strong><br />
+                            {!eventRow.timeLabel}
+                        </div>
+                    </apex:repeat>
+                </div>
+            </apex:repeat>
+        </apex:outputPanel>
+        <apex:outputPanel rendered="{!!hasAgendaGroups}">
+            <div class="empty">No agenda events available for this range.</div>
+        </apex:outputPanel>
+    </apex:outputPanel>
+
+    <apex:outputPanel rendered="{!isTeamLoadView}">
+        <apex:outputPanel rendered="{!hasTeamLoadRows}">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Calendar</th>
+                        <th>Total</th>
+                        <th>Confirmed</th>
+                        <th>Planned</th>
+                        <th>Cancelled</th>
+                        <th>All Day</th>
+                        <th>Timed</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <apex:repeat value="{!teamLoadRows}" var="row">
+                        <tr>
+                            <td>{!row.calendarName}</td>
+                            <td>{!row.total}</td>
+                            <td>{!row.confirmed}</td>
+                            <td>{!row.planned}</td>
+                            <td>{!row.cancelled}</td>
+                            <td>{!row.allDay}</td>
+                            <td>{!row.timed}</td>
+                        </tr>
+                    </apex:repeat>
+                </tbody>
+            </table>
+        </apex:outputPanel>
+        <apex:outputPanel rendered="{!!hasTeamLoadRows}">
+            <div class="empty">No calendar load data is available for this range.</div>
+        </apex:outputPanel>
+    </apex:outputPanel>
+
+    <apex:outputPanel rendered="{!isConflictsView}">
+        <apex:outputPanel rendered="{!hasConflictRows}">
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>Calendar</th>
+                        <th>Event 1</th>
+                        <th>Time 1</th>
+                        <th>Event 2</th>
+                        <th>Time 2</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <apex:repeat value="{!conflictRows}" var="row">
+                        <tr>
+                            <td>{!row.calendarName}</td>
+                            <td>{!row.firstTitle}</td>
+                            <td>{!row.firstTime}</td>
+                            <td>{!row.secondTitle}</td>
+                            <td>{!row.secondTime}</td>
+                        </tr>
+                    </apex:repeat>
+                </tbody>
+            </table>
+        </apex:outputPanel>
+        <apex:outputPanel rendered="{!!hasConflictRows}">
+            <div class="empty">No conflicts found for this range.</div>
+        </apex:outputPanel>
+    </apex:outputPanel>
+</body>
+</html>
+</apex:page>

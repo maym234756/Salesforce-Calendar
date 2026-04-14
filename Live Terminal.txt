@@ -1,0 +1,9 @@
+Step 1: Run JavaSE-25 LTS to connect with Salesforce Production
+
+
+Code to Run Live Deployment
+
+sf project deploy start --source-dir force-app/main/default/lwc --target-org calendarDev
+
+
+sf project deploy start --source-dir force-app/main/default/lwc --target-org calendarDev

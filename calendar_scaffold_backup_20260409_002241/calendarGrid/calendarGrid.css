@@ -1,0 +1,112 @@
+.weekdays,
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+}
+
+.weekday {
+    padding: 0.5rem;
+    font-weight: 700;
+    border: 1px solid #d8dde6;
+    background: #f3f3f3;
+    text-align: center;
+}
+
+.day-cell {
+    min-height: 130px;
+    border: 1px solid #d8dde6;
+    padding: 0.35rem;
+    background: #ffffff;
+}
+
+.day-cell--interactive {
+    cursor: pointer;
+}
+
+.day-cell--muted {
+    background: #f8f8f8;
+    color: #999999;
+}
+
+.day-cell--today {
+    box-shadow: inset 0 0 0 2px #0176d3;
+}
+
+.day-header {
+    font-weight: 700;
+    margin-bottom: 0.35rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.day-add-btn {
+    border: 0;
+    background: transparent;
+    color: #0176d3;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0 0.25rem;
+    border-radius: 0.2rem;
+}
+
+.day-add-btn:hover {
+    background: #eef4ff;
+}
+
+.events {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.event-pill {
+    border-radius: 0.25rem;
+    padding: 0.3rem 0.4rem;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    overflow: hidden;
+    text-align: left;
+    border: 0;
+    cursor: pointer;
+    width: 100%;
+}
+
+.event-pill:hover {
+    filter: brightness(0.97);
+}
+
+.event-pill--planned {
+    background: #fdf3d1;
+}
+
+.event-pill--confirmed {
+    background: #d8f5d8;
+}
+
+.event-pill--cancelled {
+    background: #fde7e9;
+}
+
+.event-time {
+    font-weight: 700;
+}
+
+.event-title,
+.event-subtitle {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.event-subtitle {
+    opacity: 0.75;
+    font-size: 0.68rem;
+}
+
+.empty-day {
+    font-size: 0.7rem;
+    color: #999999;
+}

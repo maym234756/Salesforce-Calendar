@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Start__c</fullName>
+    <type>DateTime</type>
+    <description>Start date and time of the event.</description>
+    <inlineHelpText>Select the date and time when the event begins</inlineHelpText>
+    <required>true</required>
+    <securityClassification>Public</securityClassification>
+    <label>Start</label>
+</CustomField>

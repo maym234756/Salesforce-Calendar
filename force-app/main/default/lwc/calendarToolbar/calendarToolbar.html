@@ -1,0 +1,327 @@
+<!--
+  @description       :
+  @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+  @group             :
+  @last modified on  : 04-12-2026
+  @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+-->
+<template>
+    <div class={toolbarClass}>
+        <div class="toolbar__main">
+            <div
+                class="toolbar__actions slds-grid slds-grid_vertical-align-end slds-wrap slds-gutters_x-small"
+            >
+                <template if:true={showTodayButton}>
+                    <div class="slds-col slds-grow-none">
+                        <button class="toolbar__btn" onclick={emitToday} title="Today">Today</button>
+                    </div>
+                </template>
+
+                <template if:true={showRefreshButton}>
+                    <div class="slds-col slds-grow-none">
+                        <button class="toolbar__btn" onclick={emitRefresh} title="Refresh">Refresh</button>
+                    </div>
+                </template>
+
+                <template if:true={showPrevNextButtons}>
+                    <div class="slds-col slds-grow-none">
+                        <button class="toolbar__btn" onclick={emitPrev} title="Previous">Prev</button>
+                    </div>
+                    <div class="slds-col slds-grow-none">
+                        <button class="toolbar__btn" onclick={emitNext} title="Next">Next</button>
+                    </div>
+                </template>
+
+                <template if:true={showNewButton}>
+                    <div class="slds-col slds-grow-none">
+                        <button class="toolbar__btn toolbar__btn--primary" onclick={emitNew} title="New Event">
+                            New
+                        </button>
+                    </div>
+                </template>
+
+                <template if:true={showFiltersButton}>
+                    <div class="slds-col slds-grow-none toolbar__filter-anchor">
+                        <button
+                            class="toolbar__btn"
+                            type="button"
+                            onclick={toggleFilterMenu}
+                            title="Show or hide layout sections"
+                        >
+                            Filters
+                        </button>
+
+                        <template if:true={isFilterMenuOpen}>
+                            <div class="toolbar__filter-menu">
+                                <div class="toolbar__filter-menu-header">Layout Filters</div>
+
+                                <div class="toolbar__filter-menu-body">
+                                    <lightning-input
+                                        type="toggle"
+                                        name="selectedUsersPanel"
+                                        label="Show Selected Users box"
+                                        checked={showSelectedUsersPanel}
+                                        onchange={handleFilterToggle}
+                                    >
+                                    </lightning-input>
+
+                                    <lightning-input
+                                        type="toggle"
+                                        name="sidebarFilters"
+                                        label="Show View / Calendar / Status"
+                                        checked={showFilterControls}
+                                        onchange={handleFilterToggle}
+                                    >
+                                    </lightning-input>
+                                </div>
+
+                                <div class="toolbar__filter-menu-footer">
+                                    <button
+                                        class="toolbar__btn toolbar__btn--subtle"
+                                        type="button"
+                                        onclick={resetFilterLayout}
+                                        title="Reset layout filters"
+                                    >
+                                        Reset
+                                    </button>
+
+                                    <button
+                                        class="user-menu__done"
+                                        type="button"
+                                        onclick={closeFilterMenu}
+                                    >
+                                        Done
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+
+                <div class="slds-col slds-grow-none">
+                    <c-calendar-security-manager></c-calendar-security-manager>
+                </div>
+
+                <template if:true={showFilterControls}>
+                    <div class="slds-col slds-grow-none" style="min-width: 9rem; max-width: 10rem;">
+                        <lightning-combobox
+                            label="View"
+                            value={currentView}
+                            options={normalizedViewOptions}
+                            onchange={handleViewChange}
+                        >
+                        </lightning-combobox>
+                    </div>
+
+                    <div class="slds-col slds-grow-none" style="min-width: 14rem; max-width: 16rem;">
+                        <lightning-combobox
+                            label="Calendar"
+                            value={selectedCalendarId}
+                            options={normalizedCalendarOptions}
+                            onchange={handleCalendarChange}
+                        >
+                        </lightning-combobox>
+                    </div>
+
+                    <div class="slds-col slds-grow-none" style="min-width: 10rem; max-width: 11rem;">
+                        <lightning-combobox
+                            label="Status"
+                            value={selectedStatus}
+                            options={normalizedStatusOptions}
+                            onchange={handleStatusChange}
+                        >
+                        </lightning-combobox>
+                    </div>
+
+                    <div class="slds-col slds-grow-none toolbar__pdf-action">
+                        <button
+                            class="toolbar__btn toolbar__btn--subtle"
+                            type="button"
+                            onclick={emitGeneratePdf}
+                            title="Generate PDF"
+                        >
+                            Generate PDF
+                        </button>
+                    </div>
+                </template>
+            </div>
+
+            <template if:true={showSelectedUsersPanel}>
+                <section class="user-panel user-panel--compact">
+                    <div class="user-panel__header">
+                        <div>
+                            <div class="user-panel__title">Selected Users</div>
+                            <div class="user-panel__meta">{selectedUserCountLabel}</div>
+                        </div>
+
+                        <div class="user-panel__menu-anchor">
+                            <button
+                                class="user-panel__trigger"
+                                type="button"
+                                onclick={toggleUserMenu}
+                                title={userTriggerLabel}
+                            >
+                                {userTriggerLabel}
+                            </button>
+
+                            <template if:true={isUserMenuOpen}>
+                                <div class="user-menu">
+                                    <div class="user-menu__header">Active Users</div>
+
+                                    <template if:true={hasUserOptions}>
+                                        <div class="user-menu__list">
+                                            <template for:each={normalizedUserOptions} for:item="option">
+                                                <div key={option.id} class="user-menu__item">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label={option.label}
+                                                        checked={option.checked}
+                                                        disabled={option.disabled}
+                                                        data-id={option.id}
+                                                        onchange={handleUserToggle}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </template>
+                                        </div>
+                                    </template>
+
+                                    <template if:false={hasUserOptions}>
+                                        <div class="user-menu__empty">
+                                            No active users loaded yet.
+                                        </div>
+                                    </template>
+
+                                    <div class="user-menu__footer">
+                                        <span class="user-menu__hint">{userLimitMessage}</span>
+                                        <button
+                                            class="user-menu__done"
+                                            type="button"
+                                            onclick={closeUserMenu}
+                                        >
+                                            Done
+                                        </button>
+                                    </div>
+                                </div>
+                            </template>
+                        </div>
+                    </div>
+
+                    <div class="user-panel__body user-panel__body--compact">
+                        <template if:true={hasSelectedUsers}>
+                            <div class="user-chip-grid">
+                                <template for:each={normalizedSelectedUsersDetailed} for:item="user">
+                                    <div key={user.id} class="user-chip-card-wrap">
+                                        <div class={user.chipClass}>
+                                            <button
+                                                type="button"
+                                                class="user-chip__name"
+                                                data-id={user.id}
+                                                onclick={handleSelectedUserClick}
+                                                title="Edit this user's calendars"
+                                            >
+                                                {user.label}
+                                            </button>
+                                            <span class="user-chip__meta">{user.selectedCalendarSummary}</span>
+                                            <button
+                                                class="user-chip__remove"
+                                                type="button"
+                                                data-id={user.id}
+                                                onclick={handleRemoveUser}
+                                                title="Remove user"
+                                            >
+                                                ×
+                                            </button>
+                                        </div>
+                                    </div>
+                                </template>
+                            </div>
+                        </template>
+
+                        <template if:false={hasSelectedUsers}>
+                            <div class="user-panel__placeholder">
+                                No users selected yet. Use Select Users to build a filtered team list.
+                            </div>
+                        </template>
+
+                        <template if:true={hasActiveUserCalendarMenu}>
+                            <section class="user-calendar-panel">
+                                <div class="user-calendar-panel__header">
+                                    <div>
+                                        <div class="user-calendar-panel__title">
+                                            {resolvedActiveUserCalendarMenu.label} Calendars
+                                        </div>
+                                        <div class="user-calendar-panel__meta">
+                                            {resolvedActiveUserCalendarMenu.selectedCalendarSummary}
+                                        </div>
+                                    </div>
+
+                                    <button
+                                        class="user-menu__done"
+                                        type="button"
+                                        onclick={handleUserCalendarMenuClose}
+                                    >
+                                        Done
+                                    </button>
+                                </div>
+
+                                <template if:true={resolvedActiveUserCalendarMenu.hasCalendarOptions}>
+                                    <div class="user-calendar-panel__list">
+                                        <template
+                                            for:each={resolvedActiveUserCalendarMenu.calendarOptions}
+                                            for:item="calendar"
+                                        >
+                                            <div key={calendar.id} class="user-calendar-panel__item">
+                                                <lightning-input
+                                                    type="checkbox"
+                                                    label={calendar.label}
+                                                    checked={calendar.checked}
+                                                    data-user-id={resolvedActiveUserCalendarMenu.id}
+                                                    data-calendar-id={calendar.id}
+                                                    onchange={handleUserCalendarToggle}
+                                                >
+                                                </lightning-input>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+
+                                <template if:false={resolvedActiveUserCalendarMenu.hasCalendarOptions}>
+                                    <div class="user-calendar-panel__empty">
+                                        {resolvedActiveUserCalendarMenu.calendarHelperText}
+                                    </div>
+                                </template>
+                            </section>
+                        </template>
+                    </div>
+                </section>
+            </template>
+        </div>
+
+        <template if:true={showSidePanel}>
+            <aside class="toolbar__side">
+                <section class="toolbar__google-panel">
+                    <div class="toolbar__google-title">Sync</div>
+
+                    <button
+                        class="toolbar__sync"
+                        type="button"
+                        onclick={emitGoogleImportAction}
+                        disabled={googleImportActionDisabled}
+                    >
+                        Salesforce &gt; Google
+                    </button>
+
+                    <button
+                        class="toolbar__sync toolbar__sync--secondary"
+                        type="button"
+                        onclick={emitGoogleExportAction}
+                        disabled={googleExportActionDisabled}
+                    >
+                        Google &gt; Salesforce
+                    </button>
+                </section>
+            </aside>
+        </template>
+    </div>
+</template>

@@ -1,0 +1,165 @@
+<!--
+  @description       : 
+  @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+  @group             : 
+  @last modified on  : 04-09-2026
+  @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+-->
+<template>
+    <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open">
+        <div class="slds-modal__container drawer">
+            <header class="slds-modal__header">
+                <div class="slds-grid slds-grid_align-spread slds-grid_vertical-align-center">
+                    <div>
+                        <h2 class="slds-text-heading_medium">Event Details</h2>
+                        <template if:true={recordId}>
+                            <p class="slds-text-body_small slds-text-color_weak slds-m-top_x-small">
+                                Record Id: {recordId}
+                            </p>
+                        </template>
+                    </div>
+
+                    <lightning-button-icon
+                        icon-name="utility:close"
+                        alternative-text="Close"
+                        onclick={handleClose}
+                    ></lightning-button-icon>
+                </div>
+            </header>
+
+            <div class="slds-modal__content slds-p-around_medium">
+                <template if:true={hasRecordId}>
+                    <template if:true={isViewMode}>
+                        <lightning-record-view-form
+                            record-id={recordId}
+                            object-api-name="Calendar_Event__c"
+                        >
+                            <div class="slds-grid slds-wrap slds-gutters">
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-output-field field-name="Name"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="Calendar__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="Status__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="Start__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="End__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="All_Day__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="Sync_Status__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-output-field field-name="Last_Synced_At__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-output-field field-name="External_Event_Id__c"></lightning-output-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-output-field field-name="Notes__c"></lightning-output-field>
+                                </div>
+                            </div>
+                        </lightning-record-view-form>
+                    </template>
+
+                    <template if:false={isViewMode}>
+                        <lightning-record-edit-form
+                            record-id={recordId}
+                            object-api-name="Calendar_Event__c"
+                            onsuccess={handleSuccess}
+                            onerror={handleError}
+                        >
+                            <div class="slds-grid slds-wrap slds-gutters">
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-input-field field-name="Name"></lightning-input-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-input-field field-name="Calendar__c"></lightning-input-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-input-field field-name="Status__c"></lightning-input-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-input-field field-name="Start__c"></lightning-input-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-input-field field-name="End__c"></lightning-input-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-input-field field-name="All_Day__c"></lightning-input-field>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-input-field field-name="Notes__c"></lightning-input-field>
+                                </div>
+                            </div>
+
+                            <footer class="slds-modal__footer slds-grid slds-grid_align-end slds-gutters_small">
+                                <lightning-button
+                                    type="button"
+                                    label="Cancel Edit"
+                                    onclick={handleCancelEdit}
+                                ></lightning-button>
+
+                                <lightning-button
+                                    variant="brand"
+                                    type="submit"
+                                    label="Save Changes"
+                                ></lightning-button>
+                            </footer>
+                        </lightning-record-edit-form>
+                    </template>
+                </template>
+
+                <template if:false={hasRecordId}>
+                    <div class="slds-box slds-theme_warning">
+                        No record was selected.
+                    </div>
+                </template>
+            </div>
+
+            <template if:true={isViewMode}>
+                <footer class="slds-modal__footer slds-grid slds-grid_align-end slds-gutters_small">
+                    <lightning-button
+                        label="Close"
+                        onclick={handleClose}
+                    ></lightning-button>
+
+                    <lightning-button
+                        label="Edit"
+                        onclick={handleEdit}
+                    ></lightning-button>
+
+                    <lightning-button
+                        variant="brand"
+                        label="Open Record"
+                        onclick={handleOpenRecord}
+                    ></lightning-button>
+                </footer>
+            </template>
+        </div>
+    </section>
+
+    <div class="slds-backdrop slds-backdrop_open"></div>
+</template>

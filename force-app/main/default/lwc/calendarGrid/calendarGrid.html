@@ -1,0 +1,74 @@
+<!--
+  @description       :
+  @author            : ChangeMeIn@UserSettingsUnder.SFDoc
+  @group             :
+  @last modified on  : 04-12-2026
+  @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
+-->
+<template>
+    <template if:true={hasWeeks}>
+        <div class={shellClass}>
+            <div class="weekdays">
+                <div class="weekday">Sun</div>
+                <div class="weekday">Mon</div>
+                <div class="weekday">Tue</div>
+                <div class="weekday">Wed</div>
+                <div class="weekday">Thu</div>
+                <div class="weekday">Fri</div>
+                <div class="weekday">Sat</div>
+            </div>
+
+            <div class={gridClass} style={gridStyle}>
+                <template for:each={weeks} for:item="week">
+                    <template for:each={week.days} for:item="day">
+                        <div
+                            key={day.key}
+                            class={day.className}
+                            data-date={day.key}
+                            data-current-month={day.currentMonthAttr}
+                            onclick={handleDayClick}
+                        >
+                            <div class="day-header">
+                                <span>{day.label}</span>
+
+                                <template if:true={day.isCurrentMonth}>
+                                    <button
+                                        type="button"
+                                        class="day-add-btn"
+                                        data-date={day.key}
+                                        onclick={handleDayAdd}
+                                        title="Add event"
+                                    >
+                                        +
+                                    </button>
+                                </template>
+                            </div>
+
+                            <div class="events">
+                                <template for:each={day.events} for:item="event">
+                                    <button
+                                        key={event.id}
+                                        type="button"
+                                        class={event.className}
+                                        style={event.styleText}
+                                        title={event.hoverText}
+                                        data-id={event.id}
+                                        onclick={handleEventOpen}
+                                    >
+                                        <div class="event-title">{event.name}</div>
+                                    </button>
+                                </template>
+                            </div>
+                        </div>
+                    </template>
+                </template>
+            </div>
+        </div>
+    </template>
+
+    <template if:false={hasWeeks}>
+        <div class="slds-box slds-theme_default slds-m-around_small">
+            No calendar days available for this range.
+        </div>
+    </template>
+</template>

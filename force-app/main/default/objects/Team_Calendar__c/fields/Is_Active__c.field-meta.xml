@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Is_Active__c</fullName>
+    <type>Checkbox</type>
+    <defaultValue>true</defaultValue>
+    <description>Indicates whether this calendar is active and available for use.</description>
+    <inlineHelpText>Check this box to make the calendar available to users.</inlineHelpText>
+    <securityClassification>Public</securityClassification>
+    <label>Is Active</label>
+</CustomField>
