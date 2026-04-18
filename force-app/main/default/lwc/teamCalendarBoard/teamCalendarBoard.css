@@ -60,6 +60,59 @@
     overflow: hidden;
 }
 
+.event-context-menu-scrim {
+    position: fixed;
+    inset: 0;
+    z-index: 30;
+    background: transparent;
+}
+
+.event-context-menu {
+    position: fixed;
+    z-index: 31;
+    width: 13.5rem;
+    padding: 0.65rem 0;
+    border-radius: 0.75rem;
+    border: 1px solid #d8dde6;
+    background: #ffffff;
+    box-shadow: 0 10px 30px rgba(24, 24, 24, 0.18);
+}
+
+.event-context-menu__title {
+    padding: 0 0.9rem 0.25rem;
+    color: #5c5c5c;
+    letter-spacing: 0.04em;
+}
+
+.event-context-menu__name {
+    padding: 0 0.9rem 0.45rem;
+    color: #181818;
+    font-size: 0.82rem;
+}
+
+.event-context-menu__item {
+    display: block;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    text-align: left;
+    padding: 0.65rem 0.9rem;
+    color: #ba0517;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.event-context-menu__item:hover:not(:disabled),
+.event-context-menu__item:focus-visible:not(:disabled) {
+    background: #fff1f2;
+    outline: none;
+}
+
+.event-context-menu__item:disabled {
+    color: #a0a0a0;
+    cursor: default;
+}
+
 .board-view-region > c-calendar-grid,
 .board-view-region > c-calendar-agenda {
     display: flex;

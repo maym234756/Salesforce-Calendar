@@ -1,4 +1,6 @@
 import { LightningElement, wire } from 'lwc';
+import { NavigationMixin } from 'lightning/navigation';
+import { encodeDefaultFieldValues } from 'lightning/pageReferenceUtils';
 import getCalendars from '@salesforce/apex/TeamCalendarBoardController.getCalendars';
 import getActiveUsers from '@salesforce/apex/TeamCalendarBoardController.getActiveUsers';
 import getUserCalendars from '@salesforce/apex/TeamCalendarBoardController.getUserCalendars';
@@ -13,6 +15,9 @@ import disconnectGoogle from '@salesforce/apex/GoogleCalendarConnectionService.d
 import listAvailableCalendars from '@salesforce/apex/GoogleCalendarConnectionService.listAvailableCalendars';
 import saveCalendarSelection from '@salesforce/apex/GoogleCalendarConnectionService.saveCalendarSelection';
 import saveImportCalendarSelections from '@salesforce/apex/GoogleCalendarConnectionService.saveImportCalendarSelections';
+import updateCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.updateCalendarEvent';
+import deleteCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.deleteCalendarEvent';
+import deleteTask from '@salesforce/apex/TeamCalendarRecordMutationService.deleteTask';
 import { getListRecordsByName } from 'lightning/uiListsApi';
 import {
     buildCalendarWeeks,
@@ -23,7 +28,7 @@ import {
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import USER_ID from '@salesforce/user/Id';
 
-export default class TeamCalendarBoard extends LightningElement {
+export default class TeamCalendarBoard extends NavigationMixin(LightningElement) {
     error;
     isLoading = false;
     isGoogleBusy = false;
@@ -33,12 +38,20 @@ export default class TeamCalendarBoard extends LightningElement {
 
     showCreateModal = false;
     showDrawer = false;
+    isDeletingEvent = false;
+    isMovingEvent = false;
 
     selectedCalendarId = '';
     selectedStatus = '';
     selectedRecordId = null;
+    selectedRecordObjectApiName = 'Calendar_Event__c';
+    selectedRecordContextId = null;
+    selectedRecordCanEdit = true;
+    selectedRecordCanDelete = true;
     defaultStart = null;
     defaultEnd = null;
+    activeEventMenu = null;
+    hoveredQuickActionRecord = null;
 
     events = [];
     weeks = [];
@@ -93,9 +106,40 @@ export default class TeamCalendarBoard extends LightningElement {
     calendarViewWireData;
     calendarViewWireError;
     calendarViewPageSize = 2000;
+    boundWindowContextMenuHandler;
+    boundWindowMouseDownHandler;
+    boundDocumentContextMenuHandler;
+    boundDocumentPointerDownHandler;
 
     connectedCallback() {
+        this.boundWindowContextMenuHandler = this.handleWindowContextMenu.bind(this);
+        this.boundWindowMouseDownHandler = this.handleWindowMouseDown.bind(this);
+        this.boundDocumentContextMenuHandler = this.handleDocumentContextMenu.bind(this);
+        this.boundDocumentPointerDownHandler = this.handleDocumentPointerDown.bind(this);
+        window.addEventListener('mousedown', this.boundWindowMouseDownHandler, true);
+        window.addEventListener('contextmenu', this.boundWindowContextMenuHandler, true);
+        if (this.ownerDocument) {
+            this.ownerDocument.addEventListener('pointerdown', this.boundDocumentPointerDownHandler, true);
+            this.ownerDocument.addEventListener('contextmenu', this.boundDocumentContextMenuHandler, true);
+        }
         this.initialize();
+    }
+
+    disconnectedCallback() {
+        if (this.ownerDocument) {
+            if (this.boundDocumentPointerDownHandler) {
+                this.ownerDocument.removeEventListener('pointerdown', this.boundDocumentPointerDownHandler, true);
+            }
+            if (this.boundDocumentContextMenuHandler) {
+                this.ownerDocument.removeEventListener('contextmenu', this.boundDocumentContextMenuHandler, true);
+            }
+        }
+        if (this.boundWindowMouseDownHandler) {
+            window.removeEventListener('mousedown', this.boundWindowMouseDownHandler, true);
+        }
+        if (this.boundWindowContextMenuHandler) {
+            window.removeEventListener('contextmenu', this.boundWindowContextMenuHandler, true);
+        }
     }
 
     async initialize() {
@@ -137,6 +181,26 @@ export default class TeamCalendarBoard extends LightningElement {
 
     get activeUserCount() {
         return Array.isArray(this.activeUserOptions) ? this.activeUserOptions.length : 0;
+    }
+
+    get hasActiveEventMenu() {
+        return Boolean(this.activeEventMenu?.recordId);
+    }
+
+    get eventContextMenuStyle() {
+        if (!this.hasActiveEventMenu) {
+            return '';
+        }
+
+        return this.activeEventMenu.style || '';
+    }
+
+    get eventContextMenuRecordName() {
+        return this.activeEventMenu?.recordName || 'this event';
+    }
+
+    get eventContextMenuDeleteLabel() {
+        return this.activeEventMenu?.recordObjectApiName === 'Task' ? 'Delete Task' : 'Delete Event';
     }
 
     get boardContentClass() {
@@ -221,6 +285,10 @@ export default class TeamCalendarBoard extends LightningElement {
             selected.listViewApiName &&
             (selected.listViewObjectApiName || selected.sobjectType)
         );
+    }
+
+    get isTaskCalendarSelection() {
+        return this.getDefinitionObjectApiName(this.selectedCalendarDefinition) === 'Task';
     }
 
     get calendarViewWireObjectApiName() {
@@ -771,6 +839,18 @@ export default class TeamCalendarBoard extends LightningElement {
                     : row.IsDisplayed !== undefined
                         ? row.IsDisplayed
                         : false,
+            canCreate:
+                row.canCreate !== undefined
+                    ? row.canCreate
+                    : row.CanCreate !== undefined
+                        ? row.CanCreate
+                        : true,
+            canEdit:
+                row.canEdit !== undefined
+                    ? row.canEdit
+                    : row.CanEdit !== undefined
+                        ? row.CanEdit
+                        : true,
             sobjectType:
                 row.sobjectType ||
                 row.SobjectType ||
@@ -1350,29 +1430,269 @@ export default class TeamCalendarBoard extends LightningElement {
     }
 
     handleHeaderNewEvent() {
+        this.closeEventContextMenu();
         this.defaultStart = null;
         this.defaultEnd = null;
-        this.showCreateModal = true;
+        this.openCreateFlow();
     }
 
     handleDaySelect(event) {
+        this.closeEventContextMenu();
         const selectedDate = event.detail?.dateKey;
         this.defaultStart = selectedDate;
         this.defaultEnd = selectedDate;
-        this.showCreateModal = true;
+        this.openCreateFlow();
+    }
+
+    async handleEventDrop(event) {
+        const recordId = event.detail?.recordId || null;
+        const targetDateKey = event.detail?.targetDateKey || null;
+
+        if (!recordId || !targetDateKey || this.isMovingEvent) {
+            return;
+        }
+
+        const eventRecord = (this.events || []).find((row) => row.id === recordId);
+        if (!eventRecord || eventRecord.recordObjectApiName !== 'Calendar_Event__c' || eventRecord.canEdit !== true) {
+            return;
+        }
+
+        const requestPayload = this.buildMovedCalendarEventRequest(eventRecord, targetDateKey);
+        if (!requestPayload) {
+            this.showToast('Move Event Error', 'The calendar event could not be moved.', 'error');
+            return;
+        }
+
+        this.isMovingEvent = true;
+
+        try {
+            await updateCalendarEvent({
+                requestJson: JSON.stringify(requestPayload)
+            });
+            await this.loadEvents();
+            this.showToast('Event Moved', `${eventRecord.name} was moved to ${this.formatMoveTargetLabel(targetDateKey)}.`, 'success');
+        } catch (error) {
+            this.showToast('Move Event Error', this.extractErrorMessage(error), 'error');
+        } finally {
+            this.isMovingEvent = false;
+        }
     }
 
     handleEventOpen(event) {
+        this.closeEventContextMenu();
+        const recordContextId = event.detail?.recordContextId || null;
         this.selectedRecordId = event.detail?.recordId || null;
+        this.selectedRecordObjectApiName =
+            event.detail?.recordObjectApiName || this.resolveRecordObjectApiName(recordContextId);
+        this.selectedRecordContextId = recordContextId;
+        this.selectedRecordCanEdit = event.detail?.canEdit !== false;
+        this.selectedRecordCanDelete = event.detail?.canDelete === true;
         this.showDrawer = Boolean(this.selectedRecordId);
+    }
+
+    handleEventHover(event) {
+        console.info('TeamCalendar quick delete hover detail', event.detail);
+
+        if (event.detail?.recordId && event.detail?.canDelete !== false) {
+            this.hoveredQuickActionRecord = {
+                recordId: event.detail.recordId,
+                recordName: event.detail.recordName || '',
+                recordObjectApiName:
+                    event.detail?.recordObjectApiName || this.resolveRecordObjectApiName(event.detail?.recordContextId),
+                recordContextId: event.detail?.recordContextId || null
+            };
+            console.info('TeamCalendar quick delete hover', this.hoveredQuickActionRecord);
+            return;
+        }
+
+        this.hoveredQuickActionRecord = null;
+        console.info('TeamCalendar quick delete hover cleared');
+    }
+
+    handleEventUnhover() {
+        this.hoveredQuickActionRecord = null;
+        console.info('TeamCalendar quick delete hover ended');
+    }
+
+    handleEventContextMenu(event) {
+        const recordId = event.detail?.recordId || null;
+        if (!recordId || event.detail?.canDelete !== true) {
+            this.closeEventContextMenu();
+            return;
+        }
+
+        this.activeEventMenu = {
+            recordId,
+            recordName: event.detail?.recordName || '',
+            recordObjectApiName:
+                event.detail?.recordObjectApiName || this.resolveRecordObjectApiName(event.detail?.recordContextId),
+            recordContextId: event.detail?.recordContextId || null,
+            style: this.buildEventContextMenuStyle(event.detail?.clientX, event.detail?.clientY)
+        };
+    }
+
+    handleBoardContextMenu(event) {
+        const source = this.resolveNativeContextMenuSource(event);
+        if (!source) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.activeEventMenu = {
+            recordId: source.recordId,
+            recordName: source.recordName,
+            recordObjectApiName: source.recordObjectApiName,
+            recordContextId: source.recordContextId,
+            style: this.buildEventContextMenuStyle(event.clientX, event.clientY)
+        };
+    }
+
+    handleWindowContextMenu(event) {
+        const source = this.hoveredQuickActionRecord || this.resolveNativeContextMenuSource(event);
+        if (!source) {
+            return;
+        }
+
+        console.info('TeamCalendar quick delete window contextmenu', source);
+        this.openQuickActionMenu(source, event);
+    }
+
+    handleWindowMouseDown(event) {
+        if (event.button !== 2) {
+            return;
+        }
+
+        const source = this.hoveredQuickActionRecord || this.resolveNativeContextMenuSource(event);
+        if (!source) {
+            return;
+        }
+
+        console.info('TeamCalendar quick delete window mousedown', source);
+        this.openQuickActionMenu(source, event);
+    }
+
+    handleDocumentContextMenu(event) {
+        const source = this.hoveredQuickActionRecord || this.resolveNativeContextMenuSource(event);
+        if (!source) {
+            return;
+        }
+
+        console.info('TeamCalendar quick delete document contextmenu', source);
+        this.openQuickActionMenu(source, event);
+    }
+
+    handleDocumentPointerDown(event) {
+        if (event.button !== 2) {
+            return;
+        }
+
+        const source = this.hoveredQuickActionRecord || this.resolveNativeContextMenuSource(event);
+        if (!source) {
+            return;
+        }
+
+        console.info('TeamCalendar quick delete document pointerdown', source);
+        this.openQuickActionMenu(source, event);
+    }
+
+    openQuickActionMenu(source, event) {
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+        }
+
+        this.activeEventMenu = {
+            recordId: source.recordId,
+            recordName: source.recordName,
+            recordObjectApiName: source.recordObjectApiName,
+            recordContextId: source.recordContextId,
+            style: this.buildEventContextMenuStyle(event.clientX, event.clientY)
+        };
+    }
+
+    handleEventContextMenuClose() {
+        this.closeEventContextMenu();
+    }
+
+    async handleDeleteEventClick() {
+        const recordId = this.activeEventMenu?.recordId;
+        if (!recordId || this.isDeletingEvent) {
+            return;
+        }
+
+        const recordName = this.activeEventMenu?.recordName || 'this event';
+        const isTaskRecord = this.activeEventMenu?.recordObjectApiName === 'Task';
+        const confirmed = window.confirm(`Delete ${isTaskRecord ? 'task' : 'event'} "${recordName}"?`);
+        if (!confirmed) {
+            this.closeEventContextMenu();
+            return;
+        }
+
+        this.isDeletingEvent = true;
+
+        try {
+            if (isTaskRecord) {
+                await deleteTask({
+                    recordId,
+                    calendarViewId: this.activeEventMenu?.recordContextId || null
+                });
+            } else {
+                await deleteCalendarEvent({ recordId });
+            }
+
+            if (this.selectedRecordId === recordId) {
+                this.selectedRecordId = null;
+                this.showDrawer = false;
+            }
+
+            this.closeEventContextMenu();
+            await this.loadEvents();
+            this.showToast(isTaskRecord ? 'Task Deleted' : 'Event Deleted', `${recordName} was deleted.`, 'success');
+        } catch (error) {
+            this.showToast(
+                isTaskRecord ? 'Delete Task Error' : 'Delete Event Error',
+                this.extractErrorMessage(error),
+                'error'
+            );
+        } finally {
+            this.isDeletingEvent = false;
+        }
     }
 
     handleCloseModal() {
         this.showCreateModal = false;
     }
 
-    async handleCreateSuccess() {
+    async handleCreateSuccess(event) {
         this.showCreateModal = false;
+        this.closeEventContextMenu();
+
+        const followUpCreatedCount = Number(event?.detail?.followUpCreatedCount || 0);
+        const followUpFailedCount = Number(event?.detail?.followUpFailedCount || 0);
+
+        let message = 'Calendar event saved.';
+        let variant = 'success';
+
+        if (followUpCreatedCount > 0) {
+            message = `Calendar event saved with ${followUpCreatedCount} follow-up event${followUpCreatedCount === 1 ? '' : 's'} created.`;
+        }
+
+        if (followUpFailedCount > 0) {
+            message += ` ${followUpFailedCount} follow-up event${followUpFailedCount === 1 ? '' : 's'} could not be created.`;
+            variant = 'warning';
+        }
+
+        this.dispatchEvent(
+            new ShowToastEvent({
+                title: variant === 'warning' ? 'Event Saved With Warnings' : 'Event Saved',
+                message,
+                variant
+            })
+        );
+
         await this.loadEvents();
     }
 
@@ -1386,10 +1706,195 @@ export default class TeamCalendarBoard extends LightningElement {
         );
     }
 
+    closeEventContextMenu() {
+        this.activeEventMenu = null;
+    }
+
+    buildMovedCalendarEventRequest(eventRecord, targetDateKey) {
+        const originalStart = new Date(eventRecord.start);
+        const originalEnd = new Date(eventRecord.endDateTime || eventRecord.start);
+
+        if (Number.isNaN(originalStart.getTime()) || Number.isNaN(originalEnd.getTime())) {
+            return null;
+        }
+
+        const durationMs = Math.max(
+            originalEnd.getTime() - originalStart.getTime(),
+            eventRecord.allDay ? (23 * 60 + 59) * 60 * 1000 : 60 * 60 * 1000
+        );
+
+        const nextStart = new Date(`${targetDateKey}T00:00:00`);
+        if (Number.isNaN(nextStart.getTime())) {
+            return null;
+        }
+
+        if (eventRecord.allDay) {
+            nextStart.setHours(0, 0, 0, 0);
+        } else {
+            nextStart.setHours(
+                originalStart.getHours(),
+                originalStart.getMinutes(),
+                originalStart.getSeconds(),
+                originalStart.getMilliseconds()
+            );
+        }
+
+        const nextEnd = new Date(nextStart.getTime() + durationMs);
+
+        return {
+            recordId: eventRecord.id,
+            calendarId: eventRecord.calendarId,
+            name: eventRecord.name,
+            startValue: nextStart.toISOString(),
+            endValue: nextEnd.toISOString(),
+            allDay: eventRecord.allDay === true,
+            status: eventRecord.status,
+            notes: eventRecord.notes
+        };
+    }
+
+    formatMoveTargetLabel(targetDateKey) {
+        const targetDate = new Date(`${targetDateKey}T12:00:00`);
+        if (Number.isNaN(targetDate.getTime())) {
+            return targetDateKey;
+        }
+
+        return targetDate.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+    }
+
+    resolveNativeContextMenuSource(event) {
+        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
+        const sourceNode = path.find(
+            (node) =>
+                node &&
+                node.dataset &&
+                node.dataset.id &&
+                node.dataset.canDelete === 'true'
+        );
+
+        if (!sourceNode) {
+            return null;
+        }
+
+        return {
+            recordId: sourceNode.dataset.id,
+            recordName: sourceNode.dataset.name || '',
+            recordObjectApiName:
+                sourceNode.dataset.recordObjectApiName ||
+                this.resolveRecordObjectApiName(sourceNode.dataset.recordContextId || null),
+            recordContextId: sourceNode.dataset.recordContextId || null
+        };
+    }
+
+    buildEventContextMenuStyle(clientX, clientY) {
+        const menuWidth = 216;
+        const menuHeight = 112;
+        const margin = 12;
+        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
+        const nextLeft = Math.min(
+            Math.max(Number(clientX) || margin, margin),
+            Math.max(viewportWidth - menuWidth - margin, margin)
+        );
+        const nextTop = Math.min(
+            Math.max(Number(clientY) || margin, margin),
+            Math.max(viewportHeight - menuHeight - margin, margin)
+        );
+
+        return `left:${nextLeft}px; top:${nextTop}px;`;
+    }
+
     async handleCloseDrawer() {
         this.showDrawer = false;
         this.selectedRecordId = null;
+        this.selectedRecordObjectApiName = 'Calendar_Event__c';
+        this.selectedRecordContextId = null;
+        this.selectedRecordCanEdit = true;
+        this.selectedRecordCanDelete = true;
         await this.loadEvents();
+    }
+
+    openCreateFlow() {
+        if (!this.isTaskCalendarSelection) {
+            this.showCreateModal = true;
+            return;
+        }
+
+        if (this.selectedCalendarDefinition?.canCreate !== true) {
+            this.showToast(
+                'Task Access Required',
+                'Calendar Security Manager does not allow you to create Task records for this calendar view.',
+                'error'
+            );
+            return;
+        }
+
+        this.navigateToTaskCreate();
+    }
+
+    navigateToTaskCreate() {
+        const defaultFieldValues = {};
+        const selectedDate = this.resolveDefaultTaskDate();
+        const ownerId = this.selectedCalendarDefinition?.assignedUserId || null;
+
+        if (selectedDate) {
+            defaultFieldValues.ActivityDate = selectedDate;
+        }
+
+        if (ownerId) {
+            defaultFieldValues.OwnerId = ownerId;
+        }
+
+        this[NavigationMixin.Navigate]({
+            type: 'standard__objectPage',
+            attributes: {
+                objectApiName: 'Task',
+                actionName: 'new'
+            },
+            state: Object.keys(defaultFieldValues).length
+                ? {
+                    defaultFieldValues: encodeDefaultFieldValues(defaultFieldValues)
+                }
+                : undefined
+        });
+    }
+
+    resolveDefaultTaskDate() {
+        const candidate = this.defaultStart || null;
+        if (!candidate) {
+            return null;
+        }
+
+        if (/^\d{4}-\d{2}-\d{2}$/.test(candidate)) {
+            return candidate;
+        }
+
+        const parsedDate = new Date(candidate);
+        if (Number.isNaN(parsedDate.getTime())) {
+            return null;
+        }
+
+        const yearValue = parsedDate.getFullYear();
+        const monthValue = String(parsedDate.getMonth() + 1).padStart(2, '0');
+        const dayValue = String(parsedDate.getDate()).padStart(2, '0');
+        return `${yearValue}-${monthValue}-${dayValue}`;
+    }
+
+    getDefinitionObjectApiName(definition) {
+        return definition?.listViewObjectApiName || definition?.sobjectType || null;
+    }
+
+    resolveRecordObjectApiName(recordContextId) {
+        if (!recordContextId) {
+            return 'Calendar_Event__c';
+        }
+
+        const definition = (this.calendarDefinitions || []).find((row) => row.id === recordContextId);
+        return this.getDefinitionObjectApiName(definition) || 'Calendar_Event__c';
     }
 
     async loadGoogleConnectionState() {
@@ -1674,6 +2179,8 @@ export default class TeamCalendarBoard extends LightningElement {
                     label: normalizedRow.name,
                     color: normalizedRow.color,
                     sourceScope: normalizedRow.sourceScope || 'Shared',
+                    canCreate: normalizedRow.canCreate,
+                    canEdit: normalizedRow.canEdit,
                     sobjectType: normalizedRow.sobjectType,
                     startField: normalizedRow.startField,
                     endField: normalizedRow.endField,
@@ -1771,6 +2278,8 @@ export default class TeamCalendarBoard extends LightningElement {
                     color: calendar.color,
                     assignedUserId: userId,
                     sourceScope: calendar.sourceScope,
+                    canCreate: calendar.canCreate,
+                    canEdit: calendar.canEdit,
                     sobjectType: calendar.sobjectType,
                     startField: calendar.startField,
                     endField: calendar.endField,
@@ -2081,7 +2590,11 @@ export default class TeamCalendarBoard extends LightningElement {
             externalEventId: null,
             syncStatus: null,
             syncError: null,
-            lastSyncedAt: null
+            lastSyncedAt: null,
+            recordObjectApiName: this.getDefinitionObjectApiName(calendarDefinition),
+            recordContextId: calendarDefinition.id,
+            canEdit: calendarDefinition?.canEdit === true,
+            canDelete: calendarDefinition?.canEdit === true
         };
     }
 
@@ -2249,11 +2762,27 @@ export default class TeamCalendarBoard extends LightningElement {
     }
 
     normalizeEvent(row) {
+        const recordObjectApiName =
+            row.recordObjectApiName || this.resolveRecordObjectApiName(row.recordContextId || row.calendarId);
+        const canEdit = row.canEdit !== undefined ? row.canEdit : recordObjectApiName === 'Calendar_Event__c';
+        const canDelete =
+            row.canDelete !== undefined
+                ? row.canDelete
+                : recordObjectApiName === 'Task'
+                    ? canEdit
+                    : recordObjectApiName === 'Calendar_Event__c';
+
         return {
             ...row,
             start: row.start,
             endDateTime: row.endDateTime || row.end || null,
-            calendarColor: this.normalizeCalendarColor(row.calendarColor)
+            calendarColor: this.normalizeCalendarColor(row.calendarColor),
+            recordObjectApiName,
+            recordContextId: row.recordContextId || row.calendarId || null,
+            canEdit,
+            canEditAttr: canEdit ? 'true' : 'false',
+            canDelete,
+            canDeleteAttr: canDelete ? 'true' : 'false'
         };
     }
 

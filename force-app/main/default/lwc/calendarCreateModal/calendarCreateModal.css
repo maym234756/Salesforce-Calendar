@@ -38,6 +38,126 @@
     line-height: 1;
 }
 
+.form-alert {
+    margin-bottom: 0.85rem;
+    border: 1px solid #e3b23c;
+    background: #fff7e6;
+    color: #6b4b00;
+    border-radius: 0.75rem;
+    padding: 0.7rem 0.85rem;
+    font-size: 0.78rem;
+    font-weight: 600;
+}
+
+.planner-inline-note {
+    border: 1px dashed #c9d5e6;
+    border-radius: 0.75rem;
+    background: #f6f9fc;
+    padding: 0.7rem 0.85rem;
+    min-height: 100%;
+}
+
+.planner-inline-note--customer {
+    border-style: solid;
+    border-color: #c7dbbe;
+    background: #f8fbf6;
+}
+
+.planner-inline-note__label {
+    font-size: 0.72rem;
+    font-weight: 700;
+    color: #355070;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 0.2rem;
+}
+
+.planner-inline-note__text {
+    font-size: 0.77rem;
+    color: #334155;
+    line-height: 1.4;
+}
+
+.planner-card {
+    margin-top: 0.8rem;
+    border-radius: 0.75rem;
+    padding: 0.8rem 0.9rem;
+    border: 1px solid #d5dbe5;
+    background: #f8fafc;
+}
+
+.planner-card--success {
+    border-color: #b9d7b2;
+    background: #f5fbf2;
+}
+
+.planner-card--warning {
+    border-color: #e4c377;
+    background: #fff8ea;
+}
+
+.planner-card--neutral {
+    border-color: #d5dbe5;
+    background: #f8fafc;
+}
+
+.planner-card__title {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: #1e293b;
+    margin-bottom: 0.15rem;
+}
+
+.planner-card__summary {
+    font-size: 0.77rem;
+    color: #334155;
+}
+
+.planner-conflicts {
+    margin-top: 0.55rem;
+    display: grid;
+    gap: 0.45rem;
+}
+
+.planner-conflict-row {
+    border-radius: 0.6rem;
+    background: rgba(255, 255, 255, 0.75);
+    padding: 0.55rem 0.65rem;
+}
+
+.planner-conflict-row__title {
+    font-size: 0.76rem;
+    font-weight: 700;
+    color: #1f2937;
+}
+
+.planner-conflict-row__meta {
+    font-size: 0.72rem;
+    color: #4b5563;
+}
+
+.planner-preview {
+    margin-top: 0.75rem;
+    padding: 0.75rem 0.85rem;
+    border-radius: 0.75rem;
+    background: #f7faf5;
+    border: 1px solid #cfe0c5;
+}
+
+.planner-preview__title {
+    font-size: 0.74rem;
+    font-weight: 700;
+    color: #284b2b;
+    margin-bottom: 0.35rem;
+}
+
+.planner-preview__row,
+.planner-preview__more {
+    font-size: 0.74rem;
+    color: #39523b;
+    line-height: 1.45;
+}
+
 .form-panel {
     border: 1px solid #e5e5e5;
     border-radius: 0.75rem;
@@ -116,5 +236,15 @@
 
     .modal-footer {
         flex-wrap: wrap;
+    }
+
+    .form-alert {
+        font-size: 0.75rem;
+    }
+
+    .planner-inline-note,
+    .planner-card,
+    .planner-preview {
+        padding: 0.7rem 0.75rem;
     }
 }

@@ -97,14 +97,102 @@
                                         Calendar Views for {selectedUserLabel}
                                     </div>
 
-                                    <div class="security-pane__search">
-                                        <lightning-input
-                                            type="search"
-                                            label="Search Calendar Views"
-                                            value={calendarSearch}
-                                            onchange={handleCalendarSearchChange}
-                                        >
-                                        </lightning-input>
+                                    <div class="security-access-tools">
+                                        <div class="security-access-tools__grid">
+                                            <div class="security-pane__search security-pane__search--compact">
+                                                <lightning-input
+                                                    type="search"
+                                                    label="Search Calendar Views"
+                                                    value={calendarSearch}
+                                                    onchange={handleCalendarSearchChange}
+                                                >
+                                                </lightning-input>
+                                            </div>
+
+                                            <div class="security-pane__search security-pane__search--compact">
+                                                <lightning-combobox
+                                                    label="Filter by Owner"
+                                                    value={ownerFilter}
+                                                    options={ownerFilterOptions}
+                                                    onchange={handleOwnerFilterChange}
+                                                >
+                                                </lightning-combobox>
+                                            </div>
+                                        </div>
+
+                                        <div class="security-access-toolbar">
+                                            <div class="security-access-toolbar__group">
+                                                <button
+                                                    type="button"
+                                                    class="security-filter-chip"
+                                                    data-filter="selectedOwner"
+                                                    aria-pressed={showOnlySelectedOwnerViews}
+                                                    onclick={handleQuickFilterToggle}
+                                                >
+                                                    {selectedOwnerViewsChipLabel}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    class="security-filter-chip"
+                                                    data-filter="active"
+                                                    aria-pressed={showOnlyActiveAccess}
+                                                    onclick={handleQuickFilterToggle}
+                                                >
+                                                    {activeAccessChipLabel}
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    class="security-filter-chip"
+                                                    data-filter="granted"
+                                                    aria-pressed={showOnlyGrantedAccess}
+                                                    onclick={handleQuickFilterToggle}
+                                                >
+                                                    {grantedAccessChipLabel}
+                                                </button>
+                                            </div>
+
+                                            <div class="security-access-toolbar__summary">
+                                                {filteredRowsSummary}
+                                            </div>
+                                        </div>
+
+                                        <div class="security-access-bulk">
+                                            <div class="security-access-bulk__label">Bulk apply to filtered rows</div>
+
+                                            <div class="security-access-bulk__actions">
+                                                <button
+                                                    type="button"
+                                                    class="security-bulk-button"
+                                                    data-action="viewOnly"
+                                                    onclick={handleBulkAction}
+                                                    disabled={bulkActionsDisabled}
+                                                >
+                                                    View Only
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    class="security-bulk-button"
+                                                    data-action="editor"
+                                                    onclick={handleBulkAction}
+                                                    disabled={bulkActionsDisabled}
+                                                >
+                                                    Editor
+                                                </button>
+
+                                                <button
+                                                    type="button"
+                                                    class="security-bulk-button security-bulk-button--danger"
+                                                    data-action="clear"
+                                                    onclick={handleBulkAction}
+                                                    disabled={bulkActionsDisabled}
+                                                >
+                                                    Clear Access
+                                                </button>
+                                            </div>
+                                        </div>
                                     </div>
 
                                     <template if:true={hasVisibleRows}>
@@ -114,6 +202,7 @@
                                                     <tr class="slds-line-height_reset">
                                                         <th scope="col"><div class="slds-truncate">Calendar View</div></th>
                                                         <th scope="col"><div class="slds-truncate">Owner</div></th>
+                                                        <th scope="col"><div class="slds-truncate">Preset</div></th>
                                                         <th scope="col"><div class="slds-truncate">View</div></th>
                                                         <th scope="col"><div class="slds-truncate">Create</div></th>
                                                         <th scope="col"><div class="slds-truncate">Edit</div></th>
@@ -124,8 +213,18 @@
                                                     </tr>
                                                 </thead>
                                                 <tbody>
-                                                    <template for:each={visibleRows} for:item="row">
-                                                        <tr key={row.id}>
+                                                    <template for:each={visibleRowGroups} for:item="group">
+                                                        <tr key={group.key} class="security-table__group-row">
+                                                            <th scope="colgroup" colspan="10">
+                                                                <div class="security-table__group-header">
+                                                                    <span class="security-table__group-title">{group.ownerName}</span>
+                                                                    <span class="security-table__group-count">{group.countLabel}</span>
+                                                                </div>
+                                                            </th>
+                                                        </tr>
+
+                                                        <template for:each={group.rows} for:item="row">
+                                                            <tr key={row.id}>
                                                             <td>
                                                                 <div class="security-table__title">{row.name}</div>
                                                                 <div class="security-table__sub">
@@ -134,6 +233,40 @@
                                                             </td>
                                                             <td>
                                                                 <div class="security-table__sub">{row.ownerName}</div>
+                                                            </td>
+                                                            <td>
+                                                                <div class="security-row-preset">
+                                                                    <div class="security-row-preset__summary">{row.presetSummary}</div>
+                                                                    <div class="security-row-preset__actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            class="security-row-preset__button"
+                                                                            data-id={row.id}
+                                                                            data-preset="viewOnly"
+                                                                            onclick={handleRowPreset}
+                                                                        >
+                                                                            View
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="security-row-preset__button"
+                                                                            data-id={row.id}
+                                                                            data-preset="editor"
+                                                                            onclick={handleRowPreset}
+                                                                        >
+                                                                            Edit
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            class="security-row-preset__button security-row-preset__button--clear"
+                                                                            data-id={row.id}
+                                                                            data-preset="clear"
+                                                                            onclick={handleRowPreset}
+                                                                        >
+                                                                            Clear
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
                                                             </td>
                                                             <td>
                                                                 <lightning-input
@@ -213,6 +346,7 @@
                                                                 </lightning-input>
                                                             </td>
                                                         </tr>
+                                                        </template>
                                                     </template>
                                                 </tbody>
                                             </table>
@@ -232,6 +366,44 @@
                                     </div>
 
                                     <div class="security-layout-tab">
+                                        <div class="security-layout-presets">
+                                            <div class="security-layout-presets__header">
+                                                <div>
+                                                    <div class="security-layout-summary__title">Layout Presets</div>
+                                                    <div class="security-layout-summary__line">
+                                                        Apply a starting layout, then fine-tune any individual setting below.
+                                                    </div>
+                                                </div>
+
+                                                <div class="security-layout-presets__actions">
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-preset-button"
+                                                        data-preset="standard"
+                                                        onclick={handleLayoutPreset}
+                                                    >
+                                                        Standard
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-preset-button"
+                                                        data-preset="compact"
+                                                        onclick={handleLayoutPreset}
+                                                    >
+                                                        Compact
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-preset-button"
+                                                        data-preset="focused"
+                                                        onclick={handleLayoutPreset}
+                                                    >
+                                                        Focused
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div class="security-layout-form">
                                             <div class="security-layout-form__field">
                                                 <lightning-combobox
@@ -286,8 +458,39 @@
                                                     {approvedSelectedUsersSummary}
                                                 </div>
 
+                                                <div class="security-approved-users__count">
+                                                    {approvedSelectedUsersCountLabel}
+                                                </div>
+
                                                 <template if:true={isApprovedSelectedUsersOpen}>
                                                     <div class="security-approved-users__menu">
+                                                        <div class="security-approved-users__actions">
+                                                            <button
+                                                                type="button"
+                                                                class="security-approved-users__action"
+                                                                data-action="all"
+                                                                onclick={handleApprovedSelectedUsersBulkAction}
+                                                            >
+                                                                All active users
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="security-approved-users__action"
+                                                                data-action="matching"
+                                                                onclick={handleApprovedSelectedUsersBulkAction}
+                                                            >
+                                                                Matching search
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                class="security-approved-users__action security-approved-users__action--danger"
+                                                                data-action="none"
+                                                                onclick={handleApprovedSelectedUsersBulkAction}
+                                                            >
+                                                                Clear all
+                                                            </button>
+                                                        </div>
+
                                                         <lightning-input
                                                             type="search"
                                                             label="Search Approved Users"
@@ -334,7 +537,34 @@
                                         </div>
 
                                         <div class="security-layout-summary">
-                                            <div class="security-layout-summary__title">Toolbar Buttons</div>
+                                            <div class="security-layout-section-header">
+                                                <div class="security-layout-summary__title">Toolbar Buttons</div>
+
+                                                <div class="security-layout-section-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-section-button"
+                                                        data-section="toolbar"
+                                                        data-preset="all"
+                                                        onclick={handleLayoutSectionAction}
+                                                    >
+                                                        Show all
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-section-button"
+                                                        data-section="toolbar"
+                                                        data-preset="essential"
+                                                        onclick={handleLayoutSectionAction}
+                                                    >
+                                                        Keep essentials
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-summary__line">
+                                                {toolbarVisibilitySummary}
+                                            </div>
                                         </div>
 
                                         <div class="security-layout-grid">
@@ -478,7 +708,43 @@
                                         </div>
 
                                         <div class="security-layout-summary">
-                                            <div class="security-layout-summary__title">Board Layout</div>
+                                            <div class="security-layout-section-header">
+                                                <div class="security-layout-summary__title">Board Layout</div>
+
+                                                <div class="security-layout-section-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-section-button"
+                                                        data-section="board"
+                                                        data-preset="spacious"
+                                                        onclick={handleLayoutSectionAction}
+                                                    >
+                                                        Spacious
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-section-button"
+                                                        data-section="board"
+                                                        data-preset="compact"
+                                                        onclick={handleLayoutSectionAction}
+                                                    >
+                                                        Compact
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-section-button"
+                                                        data-section="board"
+                                                        data-preset="minimal"
+                                                        onclick={handleLayoutSectionAction}
+                                                    >
+                                                        Minimal
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-summary__line">
+                                                {boardLayoutSummary}
+                                            </div>
                                         </div>
 
                                         <div class="security-layout-grid">
@@ -645,7 +911,7 @@
                                         </div>
 
                                         <div class="security-layout-summary">
-                                            <div class="security-layout-summary__title">Current Saved Defaults</div>
+                                            <div class="security-layout-summary__title">Live Layout Preview</div>
                                             <div class="security-layout-summary__line">
                                                 Default View: <strong>{layoutDraft.defaultView}</strong>
                                             </div>
@@ -654,6 +920,18 @@
                                             </div>
                                             <div class="security-layout-summary__line">
                                                 Default Status: <strong>{currentLayoutStatusName}</strong>
+                                            </div>
+                                            <div class="security-layout-summary__line">
+                                                Selected Users: <strong>{selectedUsersVisibilitySummaryLine}</strong>
+                                            </div>
+                                            <div class="security-layout-summary__line">
+                                                Toolbar: <strong>{toolbarVisibilitySummary}</strong>
+                                            </div>
+                                            <div class="security-layout-summary__line">
+                                                Board: <strong>{boardLayoutSummary}</strong>
+                                            </div>
+                                            <div class="security-layout-summary__line">
+                                                Status: <strong>{layoutActivationSummary}</strong>
                                             </div>
                                         </div>
                                     </div>

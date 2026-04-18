@@ -32,8 +32,18 @@
                                     type="button"
                                     class="slds-button slds-button_reset slds-size_1-of-1 slds-box slds-text-align_left"
                                     data-id={event.id}
+                                    data-name={event.name}
+                                    data-record-object-api-name={event.recordObjectApiName}
+                                    data-record-context-id={event.recordContextId}
+                                    data-can-edit={event.canEditAttr}
+                                    data-can-delete={event.canDeleteAttr}
                                     title={event.hoverText}
                                     onclick={handleEventOpen}
+                                    onmouseenter={handleEventHover}
+                                    onmouseleave={handleEventUnhover}
+                                    onpointerdown={handleEventPointerDown}
+                                    onmousedown={handleEventMouseDown}
+                                    oncontextmenu={handleEventContextMenu}
                                 >
                                     <div class="slds-grid slds-grid_vertical-align-center slds-gutters_small">
                                         <div class="slds-col slds-no-flex">

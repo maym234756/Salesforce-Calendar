@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Customer_Contact__c</fullName>
+    <label>Customer Contact</label>
+    <description>Optional contact linked to the appointment.</description>
+    <inlineHelpText>Link the event to the customer contact when the appointment is customer-facing.</inlineHelpText>
+    <referenceTo>Contact</referenceTo>
+    <relationshipLabel>Calendar Events</relationshipLabel>
+    <relationshipName>CalendarEventsAsCustomerContact</relationshipName>
+    <required>false</required>
+    <securityClassification>Public</securityClassification>
+    <trackHistory>false</trackHistory>
+    <type>Lookup</type>
+</CustomField>

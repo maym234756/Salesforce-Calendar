@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Reminder_Offset_Minutes__c</fullName>
+    <type>Picklist</type>
+    <description>Stores the preferred reminder lead time for the calendar event.</description>
+    <inlineHelpText>Choose how far in advance the appointment should be flagged for reminder workflows.</inlineHelpText>
+    <required>false</required>
+    <securityClassification>Public</securityClassification>
+    <label>Reminder Preference</label>
+    <valueSet>
+        <valueSetDefinition>
+            <value>
+                <fullName>None</fullName>
+                <label>No reminder</label>
+                <default>true</default>
+            </value>
+            <value>
+                <fullName>15 Minutes</fullName>
+                <label>15 minutes before</label>
+                <default>false</default>
+            </value>
+            <value>
+                <fullName>30 Minutes</fullName>
+                <label>30 minutes before</label>
+                <default>false</default>
+            </value>
+            <value>
+                <fullName>1 Hour</fullName>
+                <label>1 hour before</label>
+                <default>false</default>
+            </value>
+            <value>
+                <fullName>1 Day</fullName>
+                <label>1 day before</label>
+                <default>false</default>
+            </value>
+            <sorted>false</sorted>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

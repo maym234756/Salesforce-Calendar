@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Appointment_Type__c</fullName>
+    <type>Picklist</type>
+    <description>Classifies the scheduling workflow for a Team Calendar event.</description>
+    <inlineHelpText>Choose whether this event is personal, internal, customer-facing, or part of a follow-up cadence.</inlineHelpText>
+    <required>false</required>
+    <securityClassification>Public</securityClassification>
+    <label>Appointment Type</label>
+    <valueSet>
+        <valueSetDefinition>
+            <value>
+                <fullName>Personal</fullName>
+                <label>Personal</label>
+                <default>true</default>
+            </value>
+            <value>
+                <fullName>Internal</fullName>
+                <label>Internal</label>
+                <default>false</default>
+            </value>
+            <value>
+                <fullName>Customer</fullName>
+                <label>Customer</label>
+                <default>false</default>
+            </value>
+            <value>
+                <fullName>Follow-Up</fullName>
+                <label>Follow-Up</label>
+                <default>false</default>
+            </value>
+            <sorted>false</sorted>
+        </valueSetDefinition>
+    </valueSet>
+</CustomField>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Reminder_Sent_At__c</fullName>
+    <type>DateTime</type>
+    <description>Tracks when the reminder task was last created for this calendar event.</description>
+    <inlineHelpText>Used by Team Calendar reminder automation to prevent duplicate reminder tasks.</inlineHelpText>
+    <required>false</required>
+    <securityClassification>Public</securityClassification>
+    <label>Reminder Sent At</label>
+</CustomField>

@@ -14,6 +14,8 @@ public with sharing class TeamCalendarBoardController {
         @AuraEnabled public Id assignedUserId;
         @AuraEnabled public String sourceScope;
         @AuraEnabled public Boolean isDisplayed;
+        @AuraEnabled public Boolean canCreate;
+        @AuraEnabled public Boolean canEdit;
         @AuraEnabled public String sobjectType;
         @AuraEnabled public String startField;
         @AuraEnabled public String endField;
@@ -166,7 +168,7 @@ public with sharing class TeamCalendarBoardController {
 
         String soql =
             'SELECT Id, Name, OwnerId, Owner.Name, Calendar__c, Calendar__r.Name, ' +
-            'Calendar__r.Color__c, Calendar__r.OwnerId, Start__c, End__c, All_Day__c, Status__c, Notes__c ' +
+            'Calendar__r.Color__c, Calendar__r.OwnerId, Start__c, End__c, All_Day__c, Status__c, Notes__c, Private_To_Owner__c ' +
             'FROM Calendar_Event__c ' +
             'WHERE Start__c < :rangeEndExclusive ' +
             'AND (End__c = null OR End__c >= :rangeStart)';
@@ -184,6 +186,13 @@ public with sharing class TeamCalendarBoardController {
         List<CalendarEventDTO> rows = new List<CalendarEventDTO>();
 
         for (Calendar_Event__c eventRow : Database.query(soql)) {
+            if (
+                eventRow.Private_To_Owner__c == true &&
+                eventRow.OwnerId != UserInfo.getUserId()
+            ) {
+                continue;
+            }
+
             Id calendarOwnerId =
                 eventRow.Calendar__r != null ? eventRow.Calendar__r.OwnerId : null;
 
@@ -278,7 +287,17 @@ public with sharing class TeamCalendarBoardController {
             accessibleCalendarViewIds
         );
 
-        return toCalendarViewOptions(calendarViewRows, null, 'Calendar View');
+        Map<Id, Calendar_Access_Rule__c> accessRulesByCalendarViewId =
+            loadAccessRulesByCalendarViewId(calendarViewRows, runningUserId, allowAllCalendarViews);
+
+        return toCalendarViewOptions(
+            calendarViewRows,
+            null,
+            'Calendar View',
+            accessRulesByCalendarViewId,
+            runningUserId,
+            allowAllCalendarViews
+        );
     }
 
     private static List<CalendarOptionDTO> loadOwnedCalendarViewOptions(Set<Id> ownerIds) {
@@ -286,10 +305,23 @@ public with sharing class TeamCalendarBoardController {
             return new List<CalendarOptionDTO>();
         }
 
+        Id runningUserId = UserInfo.getUserId();
+        Boolean allowAllCalendarViews =
+            TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
         CalendarViewAccessGateway gateway = new CalendarViewAccessGateway();
         List<CalendarView> calendarViewRows = gateway.loadCalendarViewsByOwners(ownerIds);
 
-        return toCalendarViewOptions(calendarViewRows, null, 'Calendar View');
+        Map<Id, Calendar_Access_Rule__c> accessRulesByCalendarViewId =
+            loadAccessRulesByCalendarViewId(calendarViewRows, runningUserId, allowAllCalendarViews);
+
+        return toCalendarViewOptions(
+            calendarViewRows,
+            null,
+            'Calendar View',
+            accessRulesByCalendarViewId,
+            runningUserId,
+            allowAllCalendarViews
+        );
     }
 
     private static List<CalendarOptionDTO> loadSharedCalendarViewOptionsForTargets(Set<Id> targetUserIds) {
@@ -297,6 +329,9 @@ public with sharing class TeamCalendarBoardController {
             return new List<CalendarOptionDTO>();
         }
 
+        Id runningUserId = UserInfo.getUserId();
+        Boolean allowAllCalendarViews =
+            TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
         CalendarViewAccessGateway gateway = new CalendarViewAccessGateway();
         Map<Id, Set<Id>> viewIdsByTargetUser =
             gateway.getSharedCalendarViewIdsByTargetUser(targetUserIds);
@@ -312,6 +347,8 @@ public with sharing class TeamCalendarBoardController {
 
         List<CalendarView> calendarViewRows = gateway.loadCalendarViewsByIds(allCalendarViewIds);
         Map<Id, CalendarView> calendarViewsById = new Map<Id, CalendarView>(calendarViewRows);
+        Map<Id, Calendar_Access_Rule__c> accessRulesByCalendarViewId =
+            loadAccessRulesByCalendarViewId(calendarViewRows, runningUserId, allowAllCalendarViews);
 
         Set<Id> listViewIds = new Set<Id>();
         for (CalendarView calendarViewRow : calendarViewRows) {
@@ -348,7 +385,10 @@ public with sharing class TeamCalendarBoardController {
                         calendarViewRow,
                         matchedListView,
                         targetUserId,
-                        'Shared Calendar View'
+                        'Shared Calendar View',
+                        accessRulesByCalendarViewId,
+                        runningUserId,
+                        allowAllCalendarViews
                     )
                 );
             }
@@ -360,7 +400,10 @@ public with sharing class TeamCalendarBoardController {
     private static List<CalendarOptionDTO> toCalendarViewOptions(
         List<CalendarView> calendarViewRows,
         Id forcedAssignedUserId,
-        String sourceScope
+        String sourceScope,
+        Map<Id, Calendar_Access_Rule__c> accessRulesByCalendarViewId,
+        Id runningUserId,
+        Boolean allowAllCalendarViews
     ) {
         if (calendarViewRows == null || calendarViewRows.isEmpty()) {
             return new List<CalendarOptionDTO>();
@@ -402,7 +445,10 @@ public with sharing class TeamCalendarBoardController {
                     calendarViewRow,
                     matchedListView,
                     assignedUserId,
-                    sourceScope
+                    sourceScope,
+                    accessRulesByCalendarViewId,
+                    runningUserId,
+                    allowAllCalendarViews
                 )
             );
         }
@@ -414,9 +460,19 @@ public with sharing class TeamCalendarBoardController {
         CalendarView calendarViewRow,
         ListView matchedListView,
         Id assignedUserId,
-        String sourceScope
+        String sourceScope,
+        Map<Id, Calendar_Access_Rule__c> accessRulesByCalendarViewId,
+        Id runningUserId,
+        Boolean allowAllCalendarViews
     ) {
         CalendarOptionDTO dto = new CalendarOptionDTO();
+        Calendar_Access_Rule__c accessRule =
+            accessRulesByCalendarViewId != null
+                ? accessRulesByCalendarViewId.get(calendarViewRow.Id)
+                : null;
+        Boolean hasOwnerAccess = runningUserId != null && calendarViewRow.OwnerId == runningUserId;
+        Boolean hasFullAccess = allowAllCalendarViews == true || hasOwnerAccess;
+
         dto.id = calendarViewRow.Id;
         dto.name = calendarViewRow.Name;
         dto.color = '#706e6b';
@@ -424,6 +480,8 @@ public with sharing class TeamCalendarBoardController {
         dto.assignedUserId = assignedUserId;
         dto.sourceScope = sourceScope;
         dto.isDisplayed = calendarViewRow.IsDisplayed;
+        dto.canCreate = hasFullAccess || (accessRule != null && accessRule.Can_Create__c == true);
+        dto.canEdit = hasFullAccess || (accessRule != null && accessRule.Can_Edit__c == true);
         dto.sobjectType =
             matchedListView != null ? matchedListView.SobjectType : null;
         dto.startField = calendarViewRow.StartField;
@@ -435,6 +493,53 @@ public with sharing class TeamCalendarBoardController {
         dto.listViewObjectApiName =
             matchedListView != null ? matchedListView.SobjectType : null;
         return dto;
+    }
+
+    private static Map<Id, Calendar_Access_Rule__c> loadAccessRulesByCalendarViewId(
+        List<CalendarView> calendarViewRows,
+        Id targetUserId,
+        Boolean allowAllCalendarViews
+    ) {
+        Map<Id, Calendar_Access_Rule__c> results = new Map<Id, Calendar_Access_Rule__c>();
+
+        if (allowAllCalendarViews == true || targetUserId == null || calendarViewRows == null || calendarViewRows.isEmpty()) {
+            return results;
+        }
+
+        Set<String> calendarViewIdStrings = new Set<String>();
+        for (CalendarView calendarViewRow : calendarViewRows) {
+            if (calendarViewRow != null && calendarViewRow.Id != null) {
+                calendarViewIdStrings.add(String.valueOf(calendarViewRow.Id));
+            }
+        }
+
+        if (calendarViewIdStrings.isEmpty()) {
+            return results;
+        }
+
+        for (Calendar_Access_Rule__c ruleRow : [
+            SELECT Calendar_View_Id__c,
+                   Can_View__c,
+                   Can_Create__c,
+                   Can_Edit__c,
+                   Can_Delete__c
+            FROM Calendar_Access_Rule__c
+            WHERE Target_User__c = :targetUserId
+            AND Is_Active__c = true
+            AND Calendar_View_Id__c IN :calendarViewIdStrings
+        ]) {
+            if (String.isBlank(ruleRow.Calendar_View_Id__c)) {
+                continue;
+            }
+
+            try {
+                results.put((Id) ruleRow.Calendar_View_Id__c, ruleRow);
+            } catch (Exception ex) {
+                // Ignore malformed ids stored in custom text fields.
+            }
+        }
+
+        return results;
     }
 
     private static Map<Id, ListView> loadListViewsById(Set<Id> listViewIds) {
@@ -461,6 +566,8 @@ public with sharing class TeamCalendarBoardController {
         dto.assignedUserId = calendarRow.OwnerId;
         dto.sourceScope = scopeLabel;
         dto.isDisplayed = true;
+        dto.canCreate = true;
+        dto.canEdit = true;
         dto.sobjectType = 'Calendar_Event__c';
         dto.startField = null;
         dto.endField = null;

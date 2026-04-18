@@ -11,7 +11,7 @@
             <header class="slds-modal__header">
                 <div class="slds-grid slds-grid_align-spread slds-grid_vertical-align-center">
                     <div>
-                        <h2 class="slds-text-heading_medium">Event Details</h2>
+                        <h2 class="slds-text-heading_medium">{drawerTitle}</h2>
                         <template if:true={recordId}>
                             <p class="slds-text-body_small slds-text-color_weak slds-m-top_x-small">
                                 Record Id: {recordId}
@@ -30,88 +30,175 @@
             <div class="slds-modal__content slds-p-around_medium">
                 <template if:true={hasRecordId}>
                     <template if:true={isViewMode}>
-                        <lightning-record-view-form
-                            record-id={recordId}
-                            object-api-name="Calendar_Event__c"
-                        >
-                            <div class="slds-grid slds-wrap slds-gutters">
-                                <div class="slds-col slds-size_1-of-1">
-                                    <lightning-output-field field-name="Name"></lightning-output-field>
+                        <template if:true={isCalendarEventRecord}>
+                            <template if:true={isEventStateLoading}>
+                                <div class="slds-p-vertical_large slds-align_absolute-center">
+                                    <lightning-spinner alternative-text="Loading event"></lightning-spinner>
                                 </div>
+                            </template>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="Calendar__c"></lightning-output-field>
-                                </div>
+                            <template if:false={isEventStateLoading}>
+                                <template if:true={hasEventState}>
+                                    <div class="slds-grid slds-wrap slds-gutters">
+                                        <div class="slds-col slds-size_1-of-1">
+                                            <div class="drawer-label">Event Name</div>
+                                            <div>{eventViewName}</div>
+                                        </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="Status__c"></lightning-output-field>
-                                </div>
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <div class="drawer-label">Calendar Id</div>
+                                            <div>{eventViewCalendarValue}</div>
+                                        </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="Start__c"></lightning-output-field>
-                                </div>
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <div class="drawer-label">Status</div>
+                                            <div>{eventViewStatus}</div>
+                                        </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="End__c"></lightning-output-field>
-                                </div>
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <div class="drawer-label">Start</div>
+                                            <div>{eventViewStartValue}</div>
+                                        </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="All_Day__c"></lightning-output-field>
-                                </div>
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <div class="drawer-label">End</div>
+                                            <div>{eventViewEndValue}</div>
+                                        </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="Sync_Status__c"></lightning-output-field>
-                                </div>
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <div class="drawer-label">All Day</div>
+                                            <div>{eventViewAllDayLabel}</div>
+                                        </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-output-field field-name="Last_Synced_At__c"></lightning-output-field>
-                                </div>
+                                        <div class="slds-col slds-size_1-of-1">
+                                            <div class="drawer-label">Notes</div>
+                                            <div>{eventViewNotesValue}</div>
+                                        </div>
+                                    </div>
+                                </template>
 
-                                <div class="slds-col slds-size_1-of-1">
-                                    <lightning-output-field field-name="External_Event_Id__c"></lightning-output-field>
-                                </div>
+                                <template if:false={hasEventState}>
+                                    <div class="slds-box slds-theme_warning">
+                                        Event details could not be loaded.
+                                    </div>
+                                </template>
+                            </template>
+                        </template>
 
-                                <div class="slds-col slds-size_1-of-1">
-                                    <lightning-output-field field-name="Notes__c"></lightning-output-field>
+                        <template if:true={isTaskRecord}>
+                            <lightning-record-view-form
+                                record-id={recordId}
+                                object-api-name="Task"
+                            >
+                                <div class="slds-grid slds-wrap slds-gutters">
+                                    <div class="slds-col slds-size_1-of-1">
+                                        <lightning-output-field field-name="Subject"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-output-field field-name="OwnerId"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-output-field field-name="ActivityDate"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-output-field field-name="Status"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-output-field field-name="Priority"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-output-field field-name="WhatId"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-output-field field-name="WhoId"></lightning-output-field>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1">
+                                        <lightning-output-field field-name="Description"></lightning-output-field>
+                                    </div>
                                 </div>
-                            </div>
-                        </lightning-record-view-form>
+                            </lightning-record-view-form>
+                        </template>
                     </template>
 
                     <template if:false={isViewMode}>
-                        <lightning-record-edit-form
-                            record-id={recordId}
-                            object-api-name="Calendar_Event__c"
-                            onsuccess={handleSuccess}
-                            onerror={handleError}
-                        >
+                        <template if:true={isCalendarEventRecord}>
                             <div class="slds-grid slds-wrap slds-gutters">
                                 <div class="slds-col slds-size_1-of-1">
-                                    <lightning-input-field field-name="Name"></lightning-input-field>
+                                    <lightning-input
+                                        label="Event Name"
+                                        value={eventNameValue}
+                                        data-field="name"
+                                        onchange={handleEventFieldChange}
+                                        required
+                                    ></lightning-input>
                                 </div>
 
                                 <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-input-field field-name="Calendar__c"></lightning-input-field>
+                                    <lightning-input
+                                        label="Calendar Id"
+                                        value={eventCalendarValue}
+                                        data-field="calendarId"
+                                        onchange={handleEventFieldChange}
+                                        disabled
+                                    ></lightning-input>
                                 </div>
 
                                 <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-input-field field-name="Status__c"></lightning-input-field>
+                                    <lightning-combobox
+                                        label="Status"
+                                        value={eventStatusValue}
+                                        options={eventStatusOptions}
+                                        data-field="status"
+                                        onchange={handleEventFieldChange}
+                                    ></lightning-combobox>
                                 </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-input-field field-name="Start__c"></lightning-input-field>
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                    <lightning-input
+                                        type="checkbox"
+                                        label="All Day"
+                                        checked={eventAllDayValue}
+                                        data-field="allDay"
+                                        onchange={handleEventFieldChange}
+                                    ></lightning-input>
                                 </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-input-field field-name="End__c"></lightning-input-field>
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                    <lightning-input
+                                        type={eventScheduleInputType}
+                                        label="Start"
+                                        value={eventStartInputValue}
+                                        data-field="startValue"
+                                        onchange={handleEventFieldChange}
+                                        required
+                                    ></lightning-input>
                                 </div>
 
-                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                    <lightning-input-field field-name="All_Day__c"></lightning-input-field>
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                    <lightning-input
+                                        type={eventScheduleInputType}
+                                        label="End"
+                                        value={eventEndInputValue}
+                                        data-field="endValue"
+                                        onchange={handleEventFieldChange}
+                                        required
+                                    ></lightning-input>
                                 </div>
 
                                 <div class="slds-col slds-size_1-of-1">
-                                    <lightning-input-field field-name="Notes__c"></lightning-input-field>
+                                    <lightning-textarea
+                                        label="Notes"
+                                        value={eventNotesValue}
+                                        data-field="notes"
+                                        onchange={handleEventFieldChange}
+                                    ></lightning-textarea>
                                 </div>
                             </div>
 
@@ -122,13 +209,104 @@
                                     onclick={handleCancelEdit}
                                 ></lightning-button>
 
+                                <template if:true={showDeleteButton}>
+                                    <lightning-button
+                                        variant="destructive-text"
+                                        type="button"
+                                        label={deleteButtonLabel}
+                                        onclick={handleDelete}
+                                        disabled={isDeleting}
+                                    ></lightning-button>
+                                </template>
+
                                 <lightning-button
                                     variant="brand"
-                                    type="submit"
+                                    type="button"
                                     label="Save Changes"
+                                    onclick={handleEventSave}
+                                    disabled={isSaving}
                                 ></lightning-button>
                             </footer>
-                        </lightning-record-edit-form>
+                        </template>
+
+                        <template if:true={isTaskRecord}>
+                            <div class="slds-grid slds-wrap slds-gutters">
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-input
+                                        label="Subject"
+                                        value={taskSubjectValue}
+                                        data-field="subject"
+                                        onchange={handleTaskFieldChange}
+                                        required
+                                    ></lightning-input>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-input
+                                        type="date"
+                                        label="Due Date"
+                                        value={taskActivityDateValue}
+                                        data-field="activityDate"
+                                        onchange={handleTaskFieldChange}
+                                    ></lightning-input>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-combobox
+                                        label="Status"
+                                        value={taskStatusValue}
+                                        options={taskStatusOptions}
+                                        data-field="status"
+                                        onchange={handleTaskFieldChange}
+                                    ></lightning-combobox>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                    <lightning-combobox
+                                        label="Priority"
+                                        value={taskPriorityValue}
+                                        options={taskPriorityOptions}
+                                        data-field="priority"
+                                        onchange={handleTaskFieldChange}
+                                    ></lightning-combobox>
+                                </div>
+
+                                <div class="slds-col slds-size_1-of-1">
+                                    <lightning-textarea
+                                        label="Description"
+                                        value={taskDescriptionValue}
+                                        data-field="description"
+                                        onchange={handleTaskFieldChange}
+                                    ></lightning-textarea>
+                                </div>
+                            </div>
+
+                            <footer class="slds-modal__footer slds-grid slds-grid_align-end slds-gutters_small">
+                                <lightning-button
+                                    type="button"
+                                    label="Cancel Edit"
+                                    onclick={handleCancelEdit}
+                                ></lightning-button>
+
+                                <template if:true={showDeleteButton}>
+                                    <lightning-button
+                                        variant="destructive-text"
+                                        type="button"
+                                        label={deleteButtonLabel}
+                                        onclick={handleDelete}
+                                        disabled={isDeleting}
+                                    ></lightning-button>
+                                </template>
+
+                                <lightning-button
+                                    variant="brand"
+                                    type="button"
+                                    label="Save Changes"
+                                    onclick={handleTaskSave}
+                                    disabled={isSaving}
+                                ></lightning-button>
+                            </footer>
+                        </template>
                     </template>
                 </template>
 
@@ -146,10 +324,21 @@
                         onclick={handleClose}
                     ></lightning-button>
 
-                    <lightning-button
-                        label="Edit"
-                        onclick={handleEdit}
-                    ></lightning-button>
+                    <template if:true={showEditButton}>
+                        <lightning-button
+                            label="Edit"
+                            onclick={handleEdit}
+                        ></lightning-button>
+                    </template>
+
+                    <template if:true={showDeleteButton}>
+                        <lightning-button
+                            variant="destructive-text"
+                            label={deleteButtonLabel}
+                            onclick={handleDelete}
+                            disabled={isDeleting}
+                        ></lightning-button>
+                    </template>
 
                     <lightning-button
                         variant="brand"

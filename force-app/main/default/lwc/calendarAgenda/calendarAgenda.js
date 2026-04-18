@@ -2,9 +2,23 @@ import { LightningElement, api } from 'lwc';
 
 export default class CalendarAgenda extends LightningElement {
     @api groups = [];
+    hasNativeQuickActionListeners = false;
+    hoveredRecordId = null;
 
     get hasGroups() {
         return Array.isArray(this.groups) && this.groups.length > 0;
+    }
+
+    renderedCallback() {
+        if (this.hasNativeQuickActionListeners) {
+            return;
+        }
+
+        this.template.addEventListener('mouseover', this.handleNativeHoverOver.bind(this), true);
+        this.template.addEventListener('mouseout', this.handleNativeHoverOut.bind(this), true);
+        this.template.addEventListener('mousedown', this.handleNativeQuickActionMouseDown.bind(this), true);
+        this.template.addEventListener('contextmenu', this.handleNativeQuickActionContextMenu.bind(this), true);
+        this.hasNativeQuickActionListeners = true;
     }
 
     handleDayAdd(event) {
@@ -22,8 +36,232 @@ export default class CalendarAgenda extends LightningElement {
         this.dispatchEvent(
             new CustomEvent('eventopen', {
                 detail: {
-                    recordId: event.currentTarget.dataset.id
+                    recordId: event.currentTarget.dataset.id,
+                    recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
+                    recordContextId: event.currentTarget.dataset.recordContextId || null,
+                    canEdit: event.currentTarget.dataset.canEdit !== 'false',
+                    canDelete: event.currentTarget.dataset.canDelete === 'true'
                 }
+            })
+        );
+    }
+
+    handleEventHover(event) {
+        this.dispatchEvent(
+            new CustomEvent('eventhover', {
+                detail: {
+                    recordId: event.currentTarget.dataset.id,
+                    recordName: event.currentTarget.dataset.name || '',
+                    recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
+                    recordContextId: event.currentTarget.dataset.recordContextId || null,
+                    canDelete: event.currentTarget.dataset.canDelete === 'true'
+                },
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    handleEventUnhover() {
+        this.dispatchEvent(
+            new CustomEvent('eventunhover', {
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    handleNativeQuickActionMouseDown(event) {
+        if (event.button !== 2) {
+            return;
+        }
+
+        const source = this.resolveQuickActionSource(event);
+        if (!source) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+        }
+
+        this.dispatchQuickActionEvent(source, event);
+    }
+
+    handleNativeHoverOver(event) {
+        const source = this.resolveRecordSource(event);
+        if (!source || source.dataset.id === this.hoveredRecordId) {
+            return;
+        }
+
+        this.hoveredRecordId = source.dataset.id;
+        this.dispatchHoverEvent(source);
+    }
+
+    handleNativeHoverOut(event) {
+        const source = this.resolveRecordSource(event);
+        if (!source || source.dataset.id !== this.hoveredRecordId) {
+            return;
+        }
+
+        const relatedTarget = event.relatedTarget;
+        if (relatedTarget && typeof relatedTarget.closest === 'function') {
+            const nextSource = relatedTarget.closest('button[data-id]');
+            if (nextSource && nextSource.dataset.id === this.hoveredRecordId) {
+                return;
+            }
+        }
+
+        this.hoveredRecordId = null;
+        this.dispatchEvent(
+            new CustomEvent('eventunhover', {
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    handleNativeQuickActionContextMenu(event) {
+        const source = this.resolveQuickActionSource(event);
+        if (!source) {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+        if (typeof event.stopImmediatePropagation === 'function') {
+            event.stopImmediatePropagation();
+        }
+
+        this.dispatchQuickActionEvent(source, event);
+    }
+
+    resolveQuickActionSource(event) {
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') {
+            return null;
+        }
+
+        const source = target.closest('button[data-id][data-can-delete="true"]');
+        return source || null;
+    }
+
+    resolveRecordSource(event) {
+        const target = event.target;
+        if (!target || typeof target.closest !== 'function') {
+            return null;
+        }
+
+        return target.closest('button[data-id]');
+    }
+
+    dispatchHoverEvent(source) {
+        this.dispatchEvent(
+            new CustomEvent('eventhover', {
+                detail: {
+                    recordId: source.dataset.id,
+                    recordName: source.dataset.name || '',
+                    recordObjectApiName: source.dataset.recordObjectApiName || null,
+                    recordContextId: source.dataset.recordContextId || null,
+                    canDelete: source.dataset.canDelete !== 'false'
+                },
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    dispatchQuickActionEvent(source, event) {
+        this.dispatchEvent(
+            new CustomEvent('eventcontextmenu', {
+                detail: {
+                    recordId: source.dataset.id,
+                    recordName: source.dataset.name || '',
+                    recordObjectApiName: source.dataset.recordObjectApiName || null,
+                    recordContextId: source.dataset.recordContextId || null,
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    canDelete: true
+                },
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    handleEventPointerDown(event) {
+        if (event.button !== 2 || event.currentTarget.dataset.canDelete !== 'true') {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.dispatchEvent(
+            new CustomEvent('eventcontextmenu', {
+                detail: {
+                    recordId: event.currentTarget.dataset.id,
+                    recordName: event.currentTarget.dataset.name || '',
+                    recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
+                    recordContextId: event.currentTarget.dataset.recordContextId || null,
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    canDelete: true
+                },
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    handleEventContextMenu(event) {
+        if (event.currentTarget.dataset.canDelete !== 'true') {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.dispatchEvent(
+            new CustomEvent('eventcontextmenu', {
+                detail: {
+                    recordId: event.currentTarget.dataset.id,
+                    recordName: event.currentTarget.dataset.name || '',
+                    recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
+                    recordContextId: event.currentTarget.dataset.recordContextId || null,
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    canDelete: true
+                },
+                bubbles: true,
+                composed: true
+            })
+        );
+    }
+
+    handleEventMouseDown(event) {
+        if (event.button !== 2 || event.currentTarget.dataset.canDelete !== 'true') {
+            return;
+        }
+
+        event.preventDefault();
+        event.stopPropagation();
+
+        this.dispatchEvent(
+            new CustomEvent('eventcontextmenu', {
+                detail: {
+                    recordId: event.currentTarget.dataset.id,
+                    recordName: event.currentTarget.dataset.name || '',
+                    recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
+                    recordContextId: event.currentTarget.dataset.recordContextId || null,
+                    clientX: event.clientX,
+                    clientY: event.clientY,
+                    canDelete: true
+                },
+                bubbles: true,
+                composed: true
             })
         );
     }

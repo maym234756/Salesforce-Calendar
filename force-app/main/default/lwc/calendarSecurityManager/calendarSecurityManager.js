@@ -28,6 +28,25 @@ const LAYOUT_FIELD_LABELS = {
     isActive: 'Layout preference active'
 };
 
+const TOOLBAR_LAYOUT_FIELDS = [
+    'showSecurityButton',
+    'showRefreshButton',
+    'showTodayButton',
+    'showPrevNextButtons',
+    'showNewButton',
+    'showFiltersButton'
+];
+
+const BOARD_LAYOUT_FIELDS = [
+    'showSelectUsersBox',
+    'showFilterControls',
+    'showWeekends',
+    'autoExpandDayHeight',
+    'wrapEventTitles',
+    'compactEventDensity',
+    'isActive'
+];
+
 function normalizeAllowedSelectedUserIds(rawValue, fallbackIds = []) {
     const source = Array.isArray(rawValue) ? rawValue : fallbackIds;
     const seenIds = new Set();
@@ -143,7 +162,11 @@ export default class CalendarSecurityManager extends LightningElement {
 
     @track userSearch = '';
     @track calendarSearch = '';
+    @track ownerFilter = '';
     @track approvedSelectedUsersSearch = '';
+    @track showOnlySelectedOwnerViews = false;
+    @track showOnlyActiveAccess = false;
+    @track showOnlyGrantedAccess = false;
 
     @track isOpen = false;
     @track isBusy = false;
@@ -294,23 +317,134 @@ export default class CalendarSecurityManager extends LightningElement {
 
     get visibleRows() {
         const search = (this.calendarSearch || '').trim().toLowerCase();
+        const ownerFilter = this.ownerFilter || '';
 
         return this.allAccessRows.filter((row) => {
-            if (!search) {
-                return true;
-            }
-
-            return (
+            const matchesSearch =
+                !search ||
                 (row.name || '').toLowerCase().includes(search) ||
                 (row.ownerName || '').toLowerCase().includes(search) ||
                 (row.startField || '').toLowerCase().includes(search) ||
-                (row.displayField || '').toLowerCase().includes(search)
+                (row.displayField || '').toLowerCase().includes(search);
+
+            const matchesOwner = !ownerFilter || row.ownerId === ownerFilter;
+            const matchesSelectedOwner =
+                !this.showOnlySelectedOwnerViews || row.ownerId === this.selectedUserId;
+            const matchesActive = !this.showOnlyActiveAccess || row.isActive === true;
+            const matchesGranted =
+                !this.showOnlyGrantedAccess || this.rowHasGrantedAccess(row);
+
+            return (
+                matchesSearch &&
+                matchesOwner &&
+                matchesSelectedOwner &&
+                matchesActive &&
+                matchesGranted
             );
         });
     }
 
     get hasVisibleRows() {
         return this.visibleRows.length > 0;
+    }
+
+    get visibleRowGroups() {
+        const groupsByOwner = new Map();
+
+        this.visibleRows.forEach((row) => {
+            const ownerId = row.ownerId || 'unknown-owner';
+            const ownerName = row.ownerName || 'Unknown Owner';
+
+            if (!groupsByOwner.has(ownerId)) {
+                groupsByOwner.set(ownerId, {
+                    key: ownerId,
+                    ownerId,
+                    ownerName,
+                    countLabel: '' ,
+                    rows: []
+                });
+            }
+
+            groupsByOwner.get(ownerId).rows.push({
+                ...row,
+                presetSummary: this.getRowPresetSummary(row)
+            });
+        });
+
+        return Array.from(groupsByOwner.values())
+            .sort((left, right) => {
+                const leftIsSelectedOwner = left.ownerId === this.selectedUserId;
+                const rightIsSelectedOwner = right.ownerId === this.selectedUserId;
+
+                if (leftIsSelectedOwner !== rightIsSelectedOwner) {
+                    return leftIsSelectedOwner ? -1 : 1;
+                }
+
+                return (left.ownerName || '').localeCompare(right.ownerName || '');
+            })
+            .map((group) => ({
+                ...group,
+                countLabel: `${group.rows.length} view${group.rows.length === 1 ? '' : 's'}`
+            }));
+    }
+
+    get visibleRowsCount() {
+        return this.visibleRows.length;
+    }
+
+    get totalAccessRowsCount() {
+        return this.allAccessRows.length;
+    }
+
+    get ownerFilterOptions() {
+        const options = [{ label: 'All Owners', value: '' }];
+        const ownersById = new Map();
+
+        (this.allAccessRows || []).forEach((row) => {
+            if (!row.ownerId || ownersById.has(row.ownerId)) {
+                return;
+            }
+
+            ownersById.set(row.ownerId, row.ownerName || 'Unknown Owner');
+        });
+
+        Array.from(ownersById.entries())
+            .sort((left, right) => left[1].localeCompare(right[1]))
+            .forEach(([value, label]) => {
+                options.push({ label, value });
+            });
+
+        return options;
+    }
+
+    get selectedOwnerViewsChipLabel() {
+        return this.selectedUserName
+            ? `Owned by ${this.selectedUserName}`
+            : 'Owned by selected user';
+    }
+
+    get activeAccessChipLabel() {
+        return 'Only Active';
+    }
+
+    get grantedAccessChipLabel() {
+        return 'Only Granted';
+    }
+
+    get filteredRowsSummary() {
+        if (!this.totalAccessRowsCount) {
+            return 'No calendar views available.';
+        }
+
+        return `Showing ${this.visibleRowsCount} of ${this.totalAccessRowsCount} calendar views`;
+    }
+
+    get hasVisibleRowsForBulkActions() {
+        return this.visibleRowsCount > 0;
+    }
+
+    get bulkActionsDisabled() {
+        return this.isSaving || !this.hasVisibleRowsForBulkActions;
     }
 
     get layoutViewOptions() {
@@ -413,6 +547,13 @@ export default class CalendarSecurityManager extends LightningElement {
         return `${approvedCount} approved user${approvedCount === 1 ? '' : 's'}`;
     }
 
+    get approvedSelectedUsersCountLabel() {
+        const approvedCount = (this.layoutDraft?.allowedSelectedUserIds || []).length;
+        const totalCount = this.defaultAllowedSelectedUserIds.length;
+
+        return `${approvedCount} of ${totalCount} active user${totalCount === 1 ? '' : 's'} approved`;
+    }
+
     get approvedSelectedUsersSummary() {
         const approvedIds = new Set(this.layoutDraft?.allowedSelectedUserIds || []);
         const approvedNames = (this.users || [])
@@ -463,6 +604,45 @@ export default class CalendarSecurityManager extends LightningElement {
         return this.isLayoutTabActive ? 'Save Layout' : 'Save Rules';
     }
 
+    get toolbarVisibilitySummary() {
+        const enabledCount = TOOLBAR_LAYOUT_FIELDS.filter(
+            (fieldName) => this.layoutDraft?.[fieldName] === true
+        ).length;
+
+        return `${enabledCount} of ${TOOLBAR_LAYOUT_FIELDS.length} toolbar controls visible`;
+    }
+
+    get boardLayoutSummary() {
+        const flags = [];
+
+        flags.push(this.layoutDraft?.showSelectUsersBox ? 'Selected Users visible' : 'Selected Users hidden');
+        flags.push(this.layoutDraft?.showFilterControls ? 'filters visible' : 'filters hidden');
+        flags.push(this.layoutDraft?.showWeekends ? 'weekends shown' : 'weekends hidden');
+        flags.push(this.layoutDraft?.compactEventDensity ? 'compact density' : 'standard density');
+
+        return flags.join(' • ');
+    }
+
+    get selectedUsersVisibilitySummaryLine() {
+        const approvedCount = (this.layoutDraft?.allowedSelectedUserIds || []).length;
+
+        if (!approvedCount) {
+            return 'No users will appear in the Selected Users picker.';
+        }
+
+        if (approvedCount === this.defaultAllowedSelectedUserIds.length) {
+            return 'All active users will appear in the Selected Users picker.';
+        }
+
+        return `${approvedCount} active users will appear in the Selected Users picker.`;
+    }
+
+    get layoutActivationSummary() {
+        return this.layoutDraft?.isActive
+            ? 'Layout preferences are active for this user.'
+            : 'Layout preferences are saved but inactive for this user.';
+    }
+
     openModal() {
         this.isOpen = true;
     }
@@ -491,6 +671,26 @@ export default class CalendarSecurityManager extends LightningElement {
         this.calendarSearch = event.target.value || '';
     }
 
+    handleOwnerFilterChange(event) {
+        this.ownerFilter = event.detail.value || '';
+    }
+
+    handleQuickFilterToggle(event) {
+        const filterName = event.currentTarget.dataset.filter;
+
+        if (filterName === 'selectedOwner') {
+            this.showOnlySelectedOwnerViews = !this.showOnlySelectedOwnerViews;
+        }
+
+        if (filterName === 'active') {
+            this.showOnlyActiveAccess = !this.showOnlyActiveAccess;
+        }
+
+        if (filterName === 'granted') {
+            this.showOnlyGrantedAccess = !this.showOnlyGrantedAccess;
+        }
+    }
+
     handleApprovedSelectedUsersSearchChange(event) {
         this.approvedSelectedUsersSearch = event.target.value || '';
     }
@@ -509,6 +709,11 @@ export default class CalendarSecurityManager extends LightningElement {
         this.isBusy = true;
         this.isApprovedSelectedUsersOpen = false;
         this.approvedSelectedUsersSearch = '';
+        this.calendarSearch = '';
+        this.ownerFilter = '';
+        this.showOnlySelectedOwnerViews = false;
+        this.showOnlyActiveAccess = false;
+        this.showOnlyGrantedAccess = false;
 
         try {
             const [accessResponse, layoutResponse] = await Promise.all([
@@ -575,6 +780,105 @@ export default class CalendarSecurityManager extends LightningElement {
         this.cacheCurrentLayoutDraft();
     }
 
+    handleBulkAction(event) {
+        const actionName = event.currentTarget.dataset.action;
+        if (!actionName) {
+            return;
+        }
+
+        const visibleRowIds = new Set(this.visibleRows.map((row) => row.id));
+        if (!visibleRowIds.size) {
+            return;
+        }
+
+        let updatedCount = 0;
+
+        this.allAccessRows = this.allAccessRows.map((row) => {
+            if (!visibleRowIds.has(row.id)) {
+                return row;
+            }
+
+            updatedCount += 1;
+
+            if (actionName === 'viewOnly') {
+                return {
+                    ...row,
+                    canView: true,
+                    canCreate: false,
+                    canEdit: false,
+                    canDelete: false,
+                    canAssignUsers: false,
+                    canManageSecurity: false,
+                    isActive: true
+                };
+            }
+
+            if (actionName === 'editor') {
+                return {
+                    ...row,
+                    canView: true,
+                    canCreate: true,
+                    canEdit: true,
+                    isActive: true
+                };
+            }
+
+            if (actionName === 'clear') {
+                return {
+                    ...row,
+                    canView: false,
+                    canCreate: false,
+                    canEdit: false,
+                    canDelete: false,
+                    canAssignUsers: false,
+                    canManageSecurity: false,
+                    isActive: false
+                };
+            }
+
+            return row;
+        });
+
+        this.enforceAccessibleDefaultCalendar();
+        this.cacheCurrentLayoutDraft();
+
+        const labelByAction = {
+            viewOnly: 'View Only',
+            editor: 'Editor',
+            clear: 'Clear Access'
+        };
+
+        this.dispatchEvent(
+            new ShowToastEvent({
+                title: 'Updated',
+                message: `${labelByAction[actionName] || 'Bulk update'} applied to ${updatedCount} calendar view${updatedCount === 1 ? '' : 's'}.`,
+                variant: 'success'
+            })
+        );
+    }
+
+    handleRowPreset(event) {
+        const rowId = event.currentTarget.dataset.id;
+        const preset = event.currentTarget.dataset.preset;
+
+        if (!rowId || !preset) {
+            return;
+        }
+
+        const updatedRows = this.applyAccessPresetToRows(new Set([rowId]), preset);
+        this.allAccessRows = updatedRows;
+        this.enforceAccessibleDefaultCalendar();
+        this.cacheCurrentLayoutDraft();
+
+        this.dispatchEvent(
+            new ShowToastEvent({
+                title: 'Updated',
+                message: `${this.getPresetLabel(preset)} applied to 1 calendar view.`,
+                variant: 'success'
+            })
+        );
+    }
+
     handleLayoutFieldChange(event) {
         const fieldName = event.target.dataset.field;
         if (!fieldName) {
@@ -594,6 +898,146 @@ export default class CalendarSecurityManager extends LightningElement {
         this.enforceAccessibleDefaultCalendar();
         this.enforceAllowedSelectedUsers();
         this.cacheCurrentLayoutDraft();
+    }
+
+    handleLayoutPreset(event) {
+        const preset = event.currentTarget.dataset.preset;
+        if (!preset) {
+            return;
+        }
+
+        let patch = {};
+
+        if (preset === 'standard') {
+            patch = {
+                defaultView: 'month',
+                defaultStatus: '',
+                showSecurityButton: true,
+                showRefreshButton: true,
+                showTodayButton: true,
+                showPrevNextButtons: true,
+                showNewButton: true,
+                showFiltersButton: true,
+                showSelectUsersBox: true,
+                showFilterControls: true,
+                showWeekends: true,
+                autoExpandDayHeight: true,
+                wrapEventTitles: true,
+                compactEventDensity: false,
+                isActive: true
+            };
+        }
+
+        if (preset === 'compact') {
+            patch = {
+                defaultView: 'week',
+                showSecurityButton: true,
+                showRefreshButton: true,
+                showTodayButton: true,
+                showPrevNextButtons: true,
+                showNewButton: true,
+                showFiltersButton: true,
+                showSelectUsersBox: true,
+                showFilterControls: true,
+                showWeekends: false,
+                autoExpandDayHeight: false,
+                wrapEventTitles: true,
+                compactEventDensity: true,
+                isActive: true
+            };
+        }
+
+        if (preset === 'focused') {
+            patch = {
+                defaultView: 'agenda',
+                showSecurityButton: true,
+                showRefreshButton: true,
+                showTodayButton: true,
+                showPrevNextButtons: true,
+                showNewButton: false,
+                showFiltersButton: false,
+                showSelectUsersBox: false,
+                showFilterControls: false,
+                showWeekends: false,
+                autoExpandDayHeight: false,
+                wrapEventTitles: false,
+                compactEventDensity: true,
+                isActive: true
+            };
+        }
+
+        this.applyLayoutDraftPatch(patch);
+    }
+
+    handleLayoutSectionAction(event) {
+        const section = event.currentTarget.dataset.section;
+        const preset = event.currentTarget.dataset.preset;
+
+        if (!section || !preset) {
+            return;
+        }
+
+        let patch = {};
+
+        if (section === 'toolbar' && preset === 'all') {
+            patch = {
+                showSecurityButton: true,
+                showRefreshButton: true,
+                showTodayButton: true,
+                showPrevNextButtons: true,
+                showNewButton: true,
+                showFiltersButton: true
+            };
+        }
+
+        if (section === 'toolbar' && preset === 'essential') {
+            patch = {
+                showSecurityButton: true,
+                showRefreshButton: true,
+                showTodayButton: true,
+                showPrevNextButtons: true,
+                showNewButton: false,
+                showFiltersButton: false
+            };
+        }
+
+        if (section === 'board' && preset === 'spacious') {
+            patch = {
+                showSelectUsersBox: true,
+                showFilterControls: true,
+                showWeekends: true,
+                autoExpandDayHeight: true,
+                wrapEventTitles: true,
+                compactEventDensity: false,
+                isActive: true
+            };
+        }
+
+        if (section === 'board' && preset === 'compact') {
+            patch = {
+                showSelectUsersBox: true,
+                showFilterControls: true,
+                showWeekends: false,
+                autoExpandDayHeight: false,
+                wrapEventTitles: true,
+                compactEventDensity: true,
+                isActive: true
+            };
+        }
+
+        if (section === 'board' && preset === 'minimal') {
+            patch = {
+                showSelectUsersBox: false,
+                showFilterControls: false,
+                showWeekends: false,
+                autoExpandDayHeight: false,
+                wrapEventTitles: false,
+                compactEventDensity: true,
+                isActive: true
+            };
+        }
+
+        this.applyLayoutDraftPatch(patch);
     }
 
     toggleApprovedSelectedUsersMenu() {
@@ -616,6 +1060,33 @@ export default class CalendarSecurityManager extends LightningElement {
         this.layoutDraft = normalizeLayoutDraft({
             ...this.layoutDraft,
             allowedSelectedUserIds: Array.from(allowedIds)
+        }, this.defaultAllowedSelectedUserIds);
+        this.cacheCurrentLayoutDraft();
+    }
+
+    handleApprovedSelectedUsersBulkAction(event) {
+        const action = event.currentTarget.dataset.action;
+        if (!action) {
+            return;
+        }
+
+        let nextAllowedIds = [];
+
+        if (action === 'all') {
+            nextAllowedIds = [...this.defaultAllowedSelectedUserIds];
+        }
+
+        if (action === 'none') {
+            nextAllowedIds = [];
+        }
+
+        if (action === 'matching') {
+            nextAllowedIds = this.approvedSelectedUserOptions.map((row) => row.id);
+        }
+
+        this.layoutDraft = normalizeLayoutDraft({
+            ...this.layoutDraft,
+            allowedSelectedUserIds: nextAllowedIds
         }, this.defaultAllowedSelectedUserIds);
         this.cacheCurrentLayoutDraft();
     }
@@ -846,5 +1317,111 @@ export default class CalendarSecurityManager extends LightningElement {
                 variant: 'error'
             })
         );
+    }
+
+    applyLayoutDraftPatch(patch) {
+        this.layoutDraft = normalizeLayoutDraft({
+            ...this.layoutDraft,
+            ...patch
+        }, this.defaultAllowedSelectedUserIds);
+
+        this.enforceAccessibleDefaultCalendar();
+        this.enforceAllowedSelectedUsers();
+        this.cacheCurrentLayoutDraft();
+    }
+
+    rowHasGrantedAccess(row) {
+        return Boolean(
+            row &&
+                (row.canView === true ||
+                    row.canCreate === true ||
+                    row.canEdit === true ||
+                    row.canDelete === true ||
+                    row.canAssignUsers === true ||
+                    row.canManageSecurity === true)
+        );
+    }
+
+    applyAccessPresetToRows(rowIds, preset) {
+        return this.allAccessRows.map((row) => {
+            if (!rowIds.has(row.id)) {
+                return row;
+            }
+
+            if (preset === 'viewOnly') {
+                return {
+                    ...row,
+                    canView: true,
+                    canCreate: false,
+                    canEdit: false,
+                    canDelete: false,
+                    canAssignUsers: false,
+                    canManageSecurity: false,
+                    isActive: true
+                };
+            }
+
+            if (preset === 'editor') {
+                return {
+                    ...row,
+                    canView: true,
+                    canCreate: true,
+                    canEdit: true,
+                    isActive: true
+                };
+            }
+
+            if (preset === 'clear') {
+                return {
+                    ...row,
+                    canView: false,
+                    canCreate: false,
+                    canEdit: false,
+                    canDelete: false,
+                    canAssignUsers: false,
+                    canManageSecurity: false,
+                    isActive: false
+                };
+            }
+
+            return row;
+        });
+    }
+
+    getPresetLabel(preset) {
+        const labelByPreset = {
+            viewOnly: 'View Only',
+            editor: 'Editor',
+            clear: 'Clear Access'
+        };
+
+        return labelByPreset[preset] || 'Preset';
+    }
+
+    getRowPresetSummary(row) {
+        if (!row || !row.isActive) {
+            return 'Inactive';
+        }
+
+        if (
+            row.canView === true &&
+            row.canCreate !== true &&
+            row.canEdit !== true &&
+            row.canDelete !== true &&
+            row.canAssignUsers !== true &&
+            row.canManageSecurity !== true
+        ) {
+            return 'View Only';
+        }
+
+        if (row.canView === true && row.canCreate === true && row.canEdit === true) {
+            return 'Editor';
+        }
+
+        if (!this.rowHasGrantedAccess(row)) {
+            return 'No Access';
+        }
+
+        return 'Custom';
     }
 }

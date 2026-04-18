@@ -20,7 +20,7 @@
                     <div>
                         <h2 class="slds-text-heading_medium">New Calendar Event</h2>
                         <p class="slds-text-body_small modal-subtitle">
-                            Faster scheduling with cleaner defaults and quick duration presets.
+                            Schedule personal, internal, and customer appointments without changing the board's save pipeline.
                         </p>
                     </div>
                     <span class="duration-pill">{durationSummary}</span>
@@ -28,15 +28,33 @@
             </header>
 
             <div class="slds-modal__content slds-p-around_medium">
-                <lightning-record-edit-form
-                    object-api-name="Calendar_Event__c"
-                    onload={handleFormLoad}
-                    onsuccess={handleSuccess}
-                    onerror={handleError}
-                >
+                <template if:true={formError}>
+                    <div class="form-alert" role="alert">{formError}</div>
+                </template>
+
+                <div>
                     <section class="form-panel slds-m-bottom_medium">
                         <div class="section-title">Quick Setup</div>
                         <p class="section-help">{timeHint}</p>
+
+                        <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
+                            <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                <lightning-combobox
+                                    name="eventTemplate"
+                                    label="Event Template"
+                                    value={selectedTemplateKey}
+                                    options={templateOptions}
+                                    onchange={handleTemplateChange}
+                                    disabled={isSaving}
+                                ></lightning-combobox>
+                            </div>
+                            <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                <div class="planner-inline-note">
+                                    <div class="planner-inline-note__label">Preset Guidance</div>
+                                    <div class="planner-inline-note__text">{templateDescription}</div>
+                                </div>
+                            </div>
+                        </div>
 
                         <template if:true={isTimedEvent}>
                             <div class="preset-row">
@@ -58,35 +76,152 @@
                     <div class="slds-grid slds-wrap slds-gutters">
                         <div class="slds-col slds-size_1-of-1">
                             <section class="form-panel">
+                                <div class="section-title">Appointment Setup</div>
+                                <p class="section-help">{appointmentTypeHelpText}</p>
+
+                                <div class="slds-grid slds-wrap slds-gutters">
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                        <lightning-combobox
+                                            name="appointmentType"
+                                            label="Appointment Type"
+                                            value={appointmentTypeValue}
+                                            options={appointmentTypeOptions}
+                                            onchange={handleAppointmentTypeChange}
+                                            required
+                                            disabled={isSaving}
+                                        ></lightning-combobox>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                        <lightning-combobox
+                                            name="assignedUser"
+                                            label="Assign To"
+                                            value={selectedAssignedUserId}
+                                            options={assignedUserOptions}
+                                            onchange={handleAssignedUserChange}
+                                            required
+                                            disabled={isSaving}
+                                        ></lightning-combobox>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
+                                        <lightning-combobox
+                                            name="reminderOffset"
+                                            label="Reminder Preference"
+                                            value={reminderOffsetValue}
+                                            options={reminderOptions}
+                                            onchange={handleReminderChange}
+                                            disabled={isSaving}
+                                        ></lightning-combobox>
+                                    </div>
+                                </div>
+
+                                <template if:true={showAvailabilityHint}>
+                                    <div class={availabilityCardClass}>
+                                        <div class="planner-card__title">Availability Hint</div>
+                                        <div class="planner-card__summary">{availabilityInsight.summary}</div>
+
+                                        <template if:true={hasAvailabilityConflicts}>
+                                            <div class="planner-conflicts">
+                                                <template for:each={availabilityInsight.conflicts} for:item="conflict">
+                                                    <div key={conflict.id} class="planner-conflict-row">
+                                                        <div class="planner-conflict-row__title">{conflict.name}</div>
+                                                        <div class="planner-conflict-row__meta">{conflict.timeLabel}</div>
+                                                        <div class="planner-conflict-row__meta">{conflict.calendarName} | {conflict.status}</div>
+                                                    </div>
+                                                </template>
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
+                            </section>
+                        </div>
+
+                        <template if:true={showCustomerConnection}>
+                            <div class="slds-col slds-size_1-of-1">
+                                <section class="form-panel">
+                                    <div class="section-title">Customer Connection</div>
+                                    <p class="section-help">
+                                        Choose an account, a contact, or both so the appointment stays linked to the customer context.
+                                    </p>
+
+                                    <div class="slds-grid slds-wrap slds-gutters">
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <lightning-record-picker
+                                                label="Customer Account"
+                                                placeholder="Search accounts"
+                                                object-api-name="Account"
+                                                value={customerAccountId}
+                                                onchange={handleCustomerAccountChange}
+                                            ></lightning-record-picker>
+                                        </div>
+
+                                        <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                            <lightning-record-picker
+                                                label="Customer Contact"
+                                                placeholder="Search contacts"
+                                                object-api-name="Contact"
+                                                value={customerContactId}
+                                                onchange={handleCustomerContactChange}
+                                            ></lightning-record-picker>
+                                        </div>
+                                    </div>
+
+                                    <template if:true={showCustomerSummary}>
+                                        <div class="planner-inline-note planner-inline-note--customer slds-m-top_small">
+                                            <div class="planner-inline-note__label">Customer Defaults</div>
+                                            <div class="planner-inline-note__text">{customerSummaryText}</div>
+                                        </div>
+                                    </template>
+                                </section>
+                            </div>
+                        </template>
+
+                        <div class="slds-col slds-size_1-of-1">
+                            <section class="form-panel">
                                 <div class="section-title">Event Details</div>
                                 <div class="slds-grid slds-wrap slds-gutters">
                                     <div class="slds-col slds-size_1-of-1">
-                                        <lightning-input-field
+                                        <lightning-input
                                             data-field="Name"
-                                            field-name="Name"
-                                        ></lightning-input-field>
+                                            type="text"
+                                            label="Event Name"
+                                            value={nameValue}
+                                            onchange={handleNameChange}
+                                            required
+                                            disabled={isSaving}
+                                        ></lightning-input>
                                     </div>
 
                                     <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                        <lightning-input-field
+                                        <lightning-input
                                             data-field="Calendar__c"
-                                            field-name="Calendar__c"
-                                            value={defaultCalendarId}
-                                        ></lightning-input-field>
+                                            type="text"
+                                            label="Resolved Team Calendar"
+                                            value={resolvedCalendarLabel}
+                                            disabled
+                                        ></lightning-input>
                                     </div>
 
                                     <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
-                                        <lightning-input-field
+                                        <lightning-combobox
                                             data-field="Status__c"
-                                            field-name="Status__c"
-                                        ></lightning-input-field>
+                                            label="Status"
+                                            value={statusValue}
+                                            options={eventStatusOptions}
+                                            onchange={handleStatusChange}
+                                            disabled={isSaving}
+                                        ></lightning-combobox>
                                     </div>
 
                                     <div class="slds-col slds-size_1-of-1">
-                                        <lightning-input-field
+                                        <lightning-textarea
                                             data-field="Notes__c"
-                                            field-name="Notes__c"
-                                        ></lightning-input-field>
+                                            label="Notes"
+                                            value={notesValue}
+                                            onchange={handleNotesChange}
+                                            disabled={isSaving}
+                                        ></lightning-textarea>
                                     </div>
                                 </div>
                             </section>
@@ -97,31 +232,89 @@
                                 <div class="section-title">Schedule</div>
                                 <div class="slds-grid slds-wrap slds-gutters">
                                     <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
-                                        <lightning-input-field
+                                        <lightning-input
                                             data-field="All_Day__c"
-                                            field-name="All_Day__c"
+                                            type="checkbox"
+                                            label="All Day"
+                                            checked={allDayValue}
                                             onchange={handleAllDayChange}
-                                        ></lightning-input-field>
+                                            disabled={isSaving}
+                                        ></lightning-input>
                                     </div>
 
                                     <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
-                                        <lightning-input-field
+                                        <lightning-input
                                             data-field="Start__c"
-                                            field-name="Start__c"
-                                            value={resolvedDefaultStart}
+                                            type={scheduleInputType}
+                                            label="Start"
+                                            value={startInputValue}
                                             onchange={handleStartChange}
-                                        ></lightning-input-field>
+                                            required
+                                            disabled={isSaving}
+                                        ></lightning-input>
                                     </div>
 
                                     <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-3">
-                                        <lightning-input-field
+                                        <lightning-input
                                             data-field="End__c"
-                                            field-name="End__c"
-                                            value={resolvedDefaultEnd}
+                                            type={scheduleInputType}
+                                            label="End"
+                                            value={endInputValue}
                                             onchange={handleEndChange}
-                                        ></lightning-input-field>
+                                            required
+                                            disabled={isSaving}
+                                        ></lightning-input>
                                     </div>
                                 </div>
+                            </section>
+                        </div>
+
+                        <div class="slds-col slds-size_1-of-1">
+                            <section class="form-panel">
+                                <div class="section-title">Follow-Up Plan</div>
+                                <p class="section-help">{followUpHelpText}</p>
+
+                                <div class="slds-grid slds-wrap slds-gutters">
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-combobox
+                                            name="followUpFrequency"
+                                            label="Follow-Up Frequency"
+                                            value={followUpFrequency}
+                                            options={followUpFrequencyOptions}
+                                            onchange={handleFollowUpFrequencyChange}
+                                            disabled={isSaving}
+                                        ></lightning-combobox>
+                                    </div>
+
+                                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                                        <lightning-input
+                                            type="number"
+                                            name="followUpCount"
+                                            label="Additional Follow-Ups"
+                                            min="0"
+                                            max="12"
+                                            value={followUpCountValue}
+                                            onchange={handleFollowUpCountChange}
+                                            disabled={isSaving}
+                                        ></lightning-input>
+                                    </div>
+                                </div>
+
+                                <template if:true={showFollowUpPreview}>
+                                    <div class="planner-preview slds-m-top_small">
+                                        <div class="planner-preview__title">Preview</div>
+                                        <template for:each={followUpPreviewRows} for:item="preview">
+                                            <div key={preview.key} class="planner-preview__row">
+                                                Follow-Up {preview.occurrenceIndex}: {preview.label}
+                                            </div>
+                                        </template>
+                                        <template if:true={hiddenFollowUpCount}>
+                                            <div class="planner-preview__more">
+                                                Plus {hiddenFollowUpCount} more follow-up event{hiddenFollowUpPluralSuffix} after this preview.
+                                            </div>
+                                        </template>
+                                    </div>
+                                </template>
                             </section>
                         </div>
                     </div>
@@ -131,15 +324,18 @@
                             type="button"
                             label="Cancel"
                             onclick={handleClose}
+                            disabled={isSaving}
                         ></lightning-button>
 
                         <lightning-button
                             variant="brand"
-                            type="submit"
+                            type="button"
                             label="Save Event"
+                            onclick={handleSave}
+                            disabled={isSaving}
                         ></lightning-button>
                     </footer>
-                </lightning-record-edit-form>
+                </div>
             </div>
         </div>
     </section>

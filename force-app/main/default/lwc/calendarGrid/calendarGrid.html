@@ -27,6 +27,9 @@
                             data-date={day.key}
                             data-current-month={day.currentMonthAttr}
                             onclick={handleDayClick}
+                            ondragover={handleDayDragOver}
+                            ondragleave={handleDayDragLeave}
+                            ondrop={handleDayDrop}
                         >
                             <div class="day-header">
                                 <span>{day.label}</span>
@@ -53,7 +56,21 @@
                                         style={event.styleText}
                                         title={event.hoverText}
                                         data-id={event.id}
+                                        data-name={event.name}
+                                        data-record-object-api-name={event.recordObjectApiName}
+                                        data-record-context-id={event.recordContextId}
+                                        data-can-edit={event.canEditAttr}
+                                        data-can-delete={event.canDeleteAttr}
+                                        data-can-drag={event.isDraggable}
+                                        draggable={event.isDraggable}
                                         onclick={handleEventOpen}
+                                        onmouseenter={handleEventHover}
+                                        onmouseleave={handleEventUnhover}
+                                        ondragstart={handleEventDragStart}
+                                        ondragend={handleEventDragEnd}
+                                        onpointerdown={handleEventPointerDown}
+                                        onmousedown={handleEventMouseDown}
+                                        oncontextmenu={handleEventContextMenu}
                                     >
                                         <div class="event-title">{event.name}</div>
                                     </button>

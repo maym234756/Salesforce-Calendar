@@ -222,6 +222,10 @@ function buildRenderedEvent(eventRecord, occurrenceKey) {
     const isAllDay = Boolean(eventRecord.allDay);
     const isContinuation = occurrenceKey !== startKey;
     const continuesAfter = occurrenceKey !== endKey;
+    const recordObjectApiName = eventRecord.recordObjectApiName || 'Calendar_Event__c';
+    const canEdit = eventRecord.canEdit !== false;
+    const canDelete = eventRecord.canDelete === true;
+    const isDraggable = recordObjectApiName === 'Calendar_Event__c' && canEdit === true;
 
     return {
         id: eventRecord.id,
@@ -238,7 +242,12 @@ function buildRenderedEvent(eventRecord, occurrenceKey) {
         sortValue: isAllDay ? 0 : start.getTime(),
         isAllDay,
         isContinuation,
-        continuesAfter
+        continuesAfter,
+        recordObjectApiName,
+        recordContextId: eventRecord.recordContextId || eventRecord.calendarId || null,
+        canEditAttr: canEdit ? 'true' : 'false',
+        canDeleteAttr: canDelete ? 'true' : 'false',
+        isDraggable
     };
 }
 

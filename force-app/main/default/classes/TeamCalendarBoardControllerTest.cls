@@ -162,6 +162,8 @@ private class TeamCalendarBoardControllerTest {
             Calendar_View_Name__c = candidates[0].Name,
             Calendar_View_Owner_Id__c = candidates[0].OwnerId,
             Can_View__c = true,
+            Can_Create__c = true,
+            Can_Edit__c = false,
             Is_Active__c = true
         );
 
@@ -176,6 +178,8 @@ private class TeamCalendarBoardControllerTest {
         for (TeamCalendarBoardController.CalendarOptionDTO row : results) {
             if (row.id == candidates[0].Id && row.assignedUserId == targetUser.Id) {
                 foundSharedView = true;
+                System.assertNotEquals(null, row.canCreate);
+                System.assertNotEquals(null, row.canEdit);
                 break;
             }
         }
@@ -410,6 +414,86 @@ private class TeamCalendarBoardControllerTest {
             missingEndThrew,
             'Expected an exception when end date is missing.'
         );
+    }
+
+    @IsTest
+    static void getEventsForRange_hidesPersonalEventsFromNonOwners() {
+        User ownerAlpha = createUser('personal.owner.alpha');
+        User viewerBeta = createUser('personal.viewer.beta');
+
+        Team_Calendar__c alphaCalendar = createCalendar(
+            'Private Alpha Calendar',
+            '#1b96ff',
+            true,
+            false,
+            null,
+            ownerAlpha.Id
+        );
+
+        Calendar_Event__c personalEvent = createEvent(
+            'Alpha Personal Event',
+            alphaCalendar.Id,
+            ownerAlpha.Id,
+            dt(2026, 4, 14, 9, 0),
+            dt(2026, 4, 14, 10, 0),
+            false,
+            'Planned',
+            'Should stay owner-only.'
+        );
+        personalEvent.Private_To_Owner__c = true;
+
+        Calendar_Event__c sharedEvent = createEvent(
+            'Alpha Shared Event',
+            alphaCalendar.Id,
+            ownerAlpha.Id,
+            dt(2026, 4, 14, 11, 0),
+            dt(2026, 4, 14, 12, 0),
+            false,
+            'Planned',
+            'Should remain visible to others.'
+        );
+
+        insert new List<Calendar_Event__c>{ personalEvent, sharedEvent };
+
+        List<TeamCalendarBoardController.CalendarEventDTO> ownerResults;
+        List<TeamCalendarBoardController.CalendarEventDTO> viewerResults;
+
+        System.runAs(ownerAlpha) {
+            ownerResults = TeamCalendarBoardController.getEventsForRange(
+                '2026-04-01',
+                '2026-04-30',
+                null,
+                null,
+                new List<String>{ String.valueOf(ownerAlpha.Id) },
+                null
+            );
+        }
+
+        System.runAs(viewerBeta) {
+            viewerResults = TeamCalendarBoardController.getEventsForRange(
+                '2026-04-01',
+                '2026-04-30',
+                null,
+                null,
+                new List<String>{ String.valueOf(ownerAlpha.Id) },
+                null
+            );
+        }
+
+        Set<Id> ownerEventIds = new Set<Id>();
+        for (TeamCalendarBoardController.CalendarEventDTO row : ownerResults) {
+            ownerEventIds.add(row.id);
+        }
+
+        Set<Id> viewerEventIds = new Set<Id>();
+        for (TeamCalendarBoardController.CalendarEventDTO row : viewerResults) {
+            viewerEventIds.add(row.id);
+        }
+
+        System.assert(ownerEventIds.contains(personalEvent.Id));
+        System.assert(ownerEventIds.contains(sharedEvent.Id));
+        System.assert(!viewerEventIds.contains(personalEvent.Id));
+        System.assert(viewerEventIds.contains(sharedEvent.Id));
     }
 
     @IsTest

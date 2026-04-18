@@ -25,7 +25,7 @@
             </template>
         </div>
 
-        <div class="board-wrap">
+        <div class="board-wrap" oncontextmenu={handleBoardContextMenu}>
             <div class="board-toolbar-shell">
                 <c-calendar-toolbar
                     range-label={rangeLabel}
@@ -103,7 +103,11 @@
                                 wrap-event-titles={wrapEventTitles}
                                 compact-event-density={compactEventDensity}
                                 ondayselect={handleDaySelect}
+                                oneventdrop={handleEventDrop}
                                 oneventopen={handleEventOpen}
+                                oneventhover={handleEventHover}
+                                oneventunhover={handleEventUnhover}
+                                oneventcontextmenu={handleEventContextMenu}
                             >
                             </c-calendar-grid>
                         </template>
@@ -116,6 +120,9 @@
                                 compact-event-density={compactEventDensity}
                                 ondayselect={handleDaySelect}
                                 oneventopen={handleEventOpen}
+                                oneventhover={handleEventHover}
+                                oneventunhover={handleEventUnhover}
+                                oneventcontextmenu={handleEventContextMenu}
                             >
                             </c-calendar-agenda>
                         </template>
@@ -209,6 +216,34 @@
                             </template>
                         </template>
                     </div>
+                </template>
+
+                <template if:true={hasActiveEventMenu}>
+                    <div
+                        class="event-context-menu-scrim"
+                        onclick={handleEventContextMenuClose}
+                    ></div>
+                    <section
+                        class="event-context-menu slds-popover slds-popover_panel slds-nubbin_top-left"
+                        style={eventContextMenuStyle}
+                        role="menu"
+                        aria-label="Event actions"
+                    >
+                        <div class="event-context-menu__title slds-text-title_caps">
+                            Event Actions
+                        </div>
+                        <div class="event-context-menu__name slds-truncate" title={eventContextMenuRecordName}>
+                            {eventContextMenuRecordName}
+                        </div>
+                        <button
+                            type="button"
+                            class="event-context-menu__item"
+                            onclick={handleDeleteEventClick}
+                            disabled={isDeletingEvent}
+                        >
+                            {eventContextMenuDeleteLabel}
+                        </button>
+                    </section>
                 </template>
             </div>
         </div>
@@ -425,6 +460,8 @@
                 default-start={defaultStart}
                 default-end={defaultEnd}
                 default-calendar-id={defaultCalendarId}
+                active-user-options={activeUserOptions}
+                current-user-id={currentUserId}
                 onclose={handleCloseModal}
                 onsuccess={handleCreateSuccess}
                 onerror={handleCreateError}
@@ -435,6 +472,10 @@
         <template if:true={showDrawer}>
             <c-calendar-event-drawer
                 record-id={selectedRecordId}
+                object-api-name={selectedRecordObjectApiName}
+                record-context-id={selectedRecordContextId}
+                can-edit={selectedRecordCanEdit}
+                can-delete={selectedRecordCanDelete}
                 onclose={handleCloseDrawer}
             >
             </c-calendar-event-drawer>
