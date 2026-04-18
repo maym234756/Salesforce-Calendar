@@ -225,6 +225,7 @@ function buildRenderedEvent(eventRecord, occurrenceKey) {
     const recordObjectApiName = eventRecord.recordObjectApiName || 'Calendar_Event__c';
     const canEdit = eventRecord.canEdit !== false;
     const canDelete = eventRecord.canDelete === true;
+    const hasContextMenu = eventRecord.hasContextMenu === true;
     const isDraggable = recordObjectApiName === 'Calendar_Event__c' && canEdit === true;
 
     return {
@@ -247,6 +248,7 @@ function buildRenderedEvent(eventRecord, occurrenceKey) {
         recordContextId: eventRecord.recordContextId || eventRecord.calendarId || null,
         canEditAttr: canEdit ? 'true' : 'false',
         canDeleteAttr: canDelete ? 'true' : 'false',
+        hasContextMenuAttr: hasContextMenu ? 'true' : 'false',
         isDraggable
     };
 }
@@ -321,6 +323,12 @@ function buildHoverText(eventRecord, start, end, occurrenceKey) {
     if (eventRecord.notes) {
         parts.push(eventRecord.notes);
     }
+
+    (Array.isArray(eventRecord.hoverDetails) ? eventRecord.hoverDetails : []).forEach((detailLine) => {
+        if (detailLine) {
+            parts.push(detailLine);
+        }
+    });
 
     return parts.join(' | ');
 }

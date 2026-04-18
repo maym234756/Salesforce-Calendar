@@ -97,20 +97,70 @@
     background: transparent;
     text-align: left;
     padding: 0.65rem 0.9rem;
-    color: #ba0517;
+    color: #032d60;
     font-weight: 600;
     cursor: pointer;
 }
 
 .event-context-menu__item:hover:not(:disabled),
 .event-context-menu__item:focus-visible:not(:disabled) {
-    background: #fff1f2;
+    background: #f3f8ff;
     outline: none;
+}
+
+.event-context-menu__item--destructive {
+    color: #ba0517;
+}
+
+.event-context-menu__item--destructive:hover:not(:disabled),
+.event-context-menu__item--destructive:focus-visible:not(:disabled) {
+    background: #fff1f2;
+}
+
+.event-context-menu__item-label {
+    display: block;
+}
+
+.event-context-menu__item-meta {
+    display: block;
+    margin-top: 0.15rem;
+    color: #5c5c5c;
+    font-size: 0.72rem;
+    font-weight: 400;
 }
 
 .event-context-menu__item:disabled {
     color: #a0a0a0;
     cursor: default;
+}
+
+.event-hover-card {
+    position: fixed;
+    z-index: 29;
+    width: 16.25rem;
+    max-width: calc(100vw - 1.5rem);
+    padding: 0.7rem 0.8rem;
+    border: 1px solid #d8dde6;
+    border-radius: 0.75rem;
+    background: rgba(255, 255, 255, 0.97);
+    box-shadow: 0 12px 28px rgba(24, 24, 24, 0.18);
+    pointer-events: none;
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+}
+
+.event-hover-card__title {
+    color: #181818;
+    font-size: 0.86rem;
+    font-weight: 700;
+    line-height: 1.3;
+}
+
+.event-hover-card__line {
+    margin-top: 0.2rem;
+    color: #3e3e3c;
+    font-size: 0.76rem;
+    line-height: 1.35;
 }
 
 .board-view-region > c-calendar-grid,

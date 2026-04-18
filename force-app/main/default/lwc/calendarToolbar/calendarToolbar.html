@@ -98,9 +98,11 @@
                     </div>
                 </template>
 
-                <div class="slds-col slds-grow-none">
-                    <c-calendar-security-manager></c-calendar-security-manager>
-                </div>
+                <template if:true={showSecurityManager}>
+                    <div class="slds-col slds-grow-none">
+                        <c-calendar-security-manager></c-calendar-security-manager>
+                    </div>
+                </template>
 
                 <template if:true={showFilterControls}>
                     <div class="slds-col slds-grow-none" style="min-width: 9rem; max-width: 10rem;">

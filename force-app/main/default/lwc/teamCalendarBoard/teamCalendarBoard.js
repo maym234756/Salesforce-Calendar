@@ -28,6 +28,8 @@ import {
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import USER_ID from '@salesforce/user/Id';
 
+const RELATED_RECORD_CONTEXT_OBJECTS = new Set(['Marine__Boat__c', 'Appraisal__c', 'Marine__Deal__c']);
+
 export default class TeamCalendarBoard extends NavigationMixin(LightningElement) {
     error;
     isLoading = false;
@@ -52,6 +54,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     defaultEnd = null;
     activeEventMenu = null;
     hoveredQuickActionRecord = null;
+    hoveredEventPreview = null;
 
     events = [];
     weeks = [];
@@ -199,8 +202,20 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         return this.activeEventMenu?.recordName || 'this event';
     }
 
-    get eventContextMenuDeleteLabel() {
-        return this.activeEventMenu?.recordObjectApiName === 'Task' ? 'Delete Task' : 'Delete Event';
+    get eventContextMenuItems() {
+        return Array.isArray(this.activeEventMenu?.items) ? this.activeEventMenu.items : [];
+    }
+
+    get hasHoveredEventPreview() {
+        return Boolean(this.hoveredEventPreview?.title);
+    }
+
+    get hoveredEventPreviewStyle() {
+        if (!this.hasHoveredEventPreview) {
+            return '';
+        }
+
+        return this.hoveredEventPreview.style || '';
     }
 
     get boardContentClass() {
@@ -1481,9 +1496,20 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     handleEventOpen(event) {
         this.closeEventContextMenu();
         const recordContextId = event.detail?.recordContextId || null;
-        this.selectedRecordId = event.detail?.recordId || null;
-        this.selectedRecordObjectApiName =
+        const recordId = event.detail?.recordId || null;
+        const recordObjectApiName =
             event.detail?.recordObjectApiName || this.resolveRecordObjectApiName(recordContextId);
+
+        if (!this.shouldOpenDrawerForRecord(recordObjectApiName)) {
+            this.showDrawer = false;
+            this.selectedRecordId = null;
+            this.selectedRecordContextId = null;
+            this.navigateToRecord(recordId, recordObjectApiName);
+            return;
+        }
+
+        this.selectedRecordId = recordId;
+        this.selectedRecordObjectApiName = recordObjectApiName;
         this.selectedRecordContextId = recordContextId;
         this.selectedRecordCanEdit = event.detail?.canEdit !== false;
         this.selectedRecordCanDelete = event.detail?.canDelete === true;
@@ -1491,44 +1517,37 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     handleEventHover(event) {
-        console.info('TeamCalendar quick delete hover detail', event.detail);
+        const source = this.buildContextMenuSourceFromDetail(event.detail);
+        const eventRecord = this.findEventRecord(source?.recordId, source?.recordContextId);
 
-        if (event.detail?.recordId && event.detail?.canDelete !== false) {
-            this.hoveredQuickActionRecord = {
-                recordId: event.detail.recordId,
-                recordName: event.detail.recordName || '',
-                recordObjectApiName:
-                    event.detail?.recordObjectApiName || this.resolveRecordObjectApiName(event.detail?.recordContextId),
-                recordContextId: event.detail?.recordContextId || null
-            };
-            console.info('TeamCalendar quick delete hover', this.hoveredQuickActionRecord);
-            return;
-        }
-
-        this.hoveredQuickActionRecord = null;
-        console.info('TeamCalendar quick delete hover cleared');
+        this.hoveredQuickActionRecord = source?.canContextMenu ? source : null;
+        this.hoveredEventPreview = this.buildHoveredEventPreview(
+            source,
+            eventRecord,
+            event.detail?.clientX,
+            event.detail?.clientY
+        );
     }
 
     handleEventUnhover() {
         this.hoveredQuickActionRecord = null;
-        console.info('TeamCalendar quick delete hover ended');
+        this.hoveredEventPreview = null;
     }
 
     handleEventContextMenu(event) {
-        const recordId = event.detail?.recordId || null;
-        if (!recordId || event.detail?.canDelete !== true) {
+        const source = this.buildContextMenuSourceFromDetail(event.detail);
+        if (!source) {
             this.closeEventContextMenu();
             return;
         }
 
-        this.activeEventMenu = {
-            recordId,
-            recordName: event.detail?.recordName || '',
-            recordObjectApiName:
-                event.detail?.recordObjectApiName || this.resolveRecordObjectApiName(event.detail?.recordContextId),
-            recordContextId: event.detail?.recordContextId || null,
-            style: this.buildEventContextMenuStyle(event.detail?.clientX, event.detail?.clientY)
-        };
+        this.openQuickActionMenu(source, {
+            clientX: event.detail?.clientX,
+            clientY: event.detail?.clientY,
+            preventDefault() {},
+            stopPropagation() {},
+            stopImmediatePropagation() {}
+        });
     }
 
     handleBoardContextMenu(event) {
@@ -1604,17 +1623,43 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             event.stopImmediatePropagation();
         }
 
+        const eventRecord = this.findEventRecord(source.recordId, source.recordContextId);
+        const items = this.buildEventContextMenuItems(source, eventRecord);
+        if (!items.length) {
+            this.closeEventContextMenu();
+            return;
+        }
+
+        this.hoveredEventPreview = null;
         this.activeEventMenu = {
             recordId: source.recordId,
             recordName: source.recordName,
             recordObjectApiName: source.recordObjectApiName,
             recordContextId: source.recordContextId,
-            style: this.buildEventContextMenuStyle(event.clientX, event.clientY)
+            items,
+            style: this.buildEventContextMenuStyle(event.clientX, event.clientY, items.length)
         };
     }
 
     handleEventContextMenuClose() {
         this.closeEventContextMenu();
+    }
+
+    handleContextMenuItemClick(event) {
+        const actionType = event.currentTarget.dataset.actionType || '';
+
+        if (actionType === 'delete') {
+            this.handleDeleteEventClick();
+            return;
+        }
+
+        if (actionType === 'open-record') {
+            this.closeEventContextMenu();
+            this.navigateToRecord(
+                event.currentTarget.dataset.recordId || null,
+                event.currentTarget.dataset.objectApiName || null
+            );
+        }
     }
 
     async handleDeleteEventClick() {
@@ -1710,6 +1755,25 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.activeEventMenu = null;
     }
 
+    navigateToRecord(recordId, objectApiName) {
+        if (!recordId) {
+            return;
+        }
+
+        this[NavigationMixin.Navigate]({
+            type: 'standard__recordPage',
+            attributes: {
+                recordId,
+                objectApiName: objectApiName || undefined,
+                actionName: 'view'
+            }
+        });
+    }
+
+    shouldOpenDrawerForRecord(objectApiName) {
+        return objectApiName === 'Calendar_Event__c' || objectApiName === 'Task';
+    }
+
     buildMovedCalendarEventRequest(eventRecord, targetDateKey) {
         const originalStart = new Date(eventRecord.start);
         const originalEnd = new Date(eventRecord.endDateTime || eventRecord.start);
@@ -1773,7 +1837,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 node &&
                 node.dataset &&
                 node.dataset.id &&
-                node.dataset.canDelete === 'true'
+                node.dataset.canContextMenu === 'true'
         );
 
         if (!sourceNode) {
@@ -1786,13 +1850,15 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             recordObjectApiName:
                 sourceNode.dataset.recordObjectApiName ||
                 this.resolveRecordObjectApiName(sourceNode.dataset.recordContextId || null),
-            recordContextId: sourceNode.dataset.recordContextId || null
+            recordContextId: sourceNode.dataset.recordContextId || null,
+            canDelete: sourceNode.dataset.canDelete === 'true',
+            canContextMenu: sourceNode.dataset.canContextMenu === 'true'
         };
     }
 
-    buildEventContextMenuStyle(clientX, clientY) {
+    buildEventContextMenuStyle(clientX, clientY, itemCount = 1) {
         const menuWidth = 216;
-        const menuHeight = 112;
+        const menuHeight = 64 + Math.max(itemCount, 1) * 48;
         const margin = 12;
         const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
         const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
@@ -1803,6 +1869,28 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         const nextTop = Math.min(
             Math.max(Number(clientY) || margin, margin),
             Math.max(viewportHeight - menuHeight - margin, margin)
+        );
+
+        return `left:${nextLeft}px; top:${nextTop}px;`;
+    }
+
+    buildHoverPreviewStyle(clientX, clientY) {
+        const previewWidth = 260;
+        const previewHeight = 148;
+        const margin = 12;
+        const horizontalOffset = 14;
+        const verticalOffset = 18;
+        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
+        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
+        const requestedLeft = (Number(clientX) || margin) + horizontalOffset;
+        const requestedTop = (Number(clientY) || margin) + verticalOffset;
+        const nextLeft = Math.min(
+            Math.max(requestedLeft, margin),
+            Math.max(viewportWidth - previewWidth - margin, margin)
+        );
+        const nextTop = Math.min(
+            Math.max(requestedTop, margin),
+            Math.max(viewportHeight - previewHeight - margin, margin)
         );
 
         return `left:${nextLeft}px; top:${nextTop}px;`;
@@ -1886,6 +1974,153 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
     getDefinitionObjectApiName(definition) {
         return definition?.listViewObjectApiName || definition?.sobjectType || null;
+    }
+
+    findEventRecord(recordId, recordContextId = null) {
+        if (!recordId) {
+            return null;
+        }
+
+        return (
+            (this.events || []).find(
+                (row) =>
+                    row.id === recordId &&
+                    (recordContextId == null || row.recordContextId === recordContextId)
+            ) || null
+        );
+    }
+
+    buildContextMenuSourceFromDetail(detail) {
+        const recordId = detail?.recordId || null;
+        if (!recordId) {
+            return null;
+        }
+
+        return {
+            recordId,
+            recordName: detail?.recordName || '',
+            recordObjectApiName:
+                detail?.recordObjectApiName || this.resolveRecordObjectApiName(detail?.recordContextId),
+            recordContextId: detail?.recordContextId || null,
+            canDelete: detail?.canDelete === true,
+            canContextMenu: detail?.canContextMenu !== false
+        };
+    }
+
+    buildEventContextMenuItems(source, eventRecord) {
+        const items = [];
+        const contextLinks = this.resolveContextLinksForRecord(source, eventRecord);
+
+        contextLinks.forEach((link) => {
+            items.push({
+                key: `open-${link.key}`,
+                actionType: 'open-record',
+                label: link.label,
+                description: link.recordName || '',
+                recordId: link.recordId,
+                objectApiName: link.objectApiName,
+                className: 'event-context-menu__item event-context-menu__item--link'
+            });
+        });
+
+        if (
+            source.canDelete === true &&
+            (source.recordObjectApiName === 'Task' || source.recordObjectApiName === 'Calendar_Event__c')
+        ) {
+            items.push({
+                key: 'delete-record',
+                actionType: 'delete',
+                label: source.recordObjectApiName === 'Task' ? 'Delete Task' : 'Delete Event',
+                description: '',
+                recordId: source.recordId,
+                objectApiName: source.recordObjectApiName,
+                className: 'event-context-menu__item event-context-menu__item--destructive'
+            });
+        }
+
+        return items;
+    }
+
+    resolveContextLinksForRecord(source, eventRecord) {
+        const links = Array.isArray(eventRecord?.contextLinks) ? [...eventRecord.contextLinks] : [];
+
+        if (!links.length && source?.recordObjectApiName === 'Marine__Boat__c') {
+            links.push(createContextLink('unit', 'Unit', source.recordId, 'Marine__Boat__c', source.recordName));
+        }
+
+        return dedupeContextLinks(links);
+    }
+
+    buildHoveredEventPreview(source, eventRecord, clientX, clientY) {
+        const title = source?.recordName || eventRecord?.name || '';
+        if (!title) {
+            return null;
+        }
+
+        const lines = [];
+        const timeLabel = this.buildHoverTimeLabel(eventRecord);
+
+        if (eventRecord?.calendarName) {
+            lines.push(eventRecord.calendarName);
+        }
+
+        if (timeLabel) {
+            lines.push(timeLabel);
+        }
+
+        if (eventRecord?.status && eventRecord.status !== 'Calendar View') {
+            lines.push(`Status: ${eventRecord.status}`);
+        }
+
+        (Array.isArray(eventRecord?.hoverDetails) ? eventRecord.hoverDetails : []).forEach((line) => {
+            if (line && !lines.includes(line)) {
+                lines.push(line);
+            }
+        });
+
+        return {
+            title,
+            lines,
+            style: this.buildHoverPreviewStyle(clientX, clientY)
+        };
+    }
+
+    buildHoverTimeLabel(eventRecord) {
+        if (!eventRecord?.start) {
+            return '';
+        }
+
+        const start = new Date(eventRecord.start);
+        const end = eventRecord.endDateTime ? new Date(eventRecord.endDateTime) : null;
+        if (Number.isNaN(start.getTime())) {
+            return '';
+        }
+
+        const dateLabel = start.toLocaleDateString(undefined, {
+            month: 'short',
+            day: 'numeric',
+            year: 'numeric'
+        });
+
+        if (eventRecord.allDay) {
+            return `${dateLabel} • All Day`;
+        }
+
+        const startLabel = start.toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+
+        if (!end || Number.isNaN(end.getTime())) {
+            return `${dateLabel} • ${startLabel}`;
+        }
+
+        const endLabel = end.toLocaleTimeString([], {
+            hour: 'numeric',
+            minute: '2-digit'
+        });
+
+        return `${dateLabel} • ${startLabel} - ${endLabel}`;
     }
 
     resolveRecordObjectApiName(recordContextId) {
@@ -2369,6 +2604,14 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             'Name'
         ].filter(Boolean);
 
+        const extraFieldsByObject = {
+            Marine__Boat__c: ['Appraisal__c', 'Deal__c', 'In_Contract__c', 'Unit_Deal_Stage__c', 'Stage__c', 'Marine__Stock_Number__c'],
+            Appraisal__c: ['Boat__c', 'Deal__c', 'Deal_Stage__c', 'Stage__c'],
+            Marine__Deal__c: ['Marine__Boat__c', 'Marine__Stage__c', 'Marine__Boat__r.Appraisal__c']
+        };
+
+        fieldNames.push(...(extraFieldsByObject[objectApiName] || []));
+
         return [...new Set(fieldNames.map((fieldName) => `${objectApiName}.${fieldName}`))];
     }
 
@@ -2573,6 +2816,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             'Untitled';
 
         const isDateOnlyStart = /^\d{4}-\d{2}-\d{2}$/.test(String(startRaw));
+        const recordObjectApiName = this.getDefinitionObjectApiName(calendarDefinition);
 
         return {
             id: record.id,
@@ -2591,11 +2835,199 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             syncStatus: null,
             syncError: null,
             lastSyncedAt: null,
-            recordObjectApiName: this.getDefinitionObjectApiName(calendarDefinition),
+            recordObjectApiName,
             recordContextId: calendarDefinition.id,
             canEdit: calendarDefinition?.canEdit === true,
-            canDelete: calendarDefinition?.canEdit === true
+            canDelete: false,
+            contextLinks: this.buildCalendarViewContextLinks(record, recordObjectApiName),
+            hoverDetails: this.buildCalendarViewHoverDetails(record, calendarDefinition, recordObjectApiName)
         };
+    }
+
+    buildCalendarViewContextLinks(record, objectApiName) {
+        switch (objectApiName) {
+        case 'Marine__Boat__c':
+            return this.buildBoatContextLinks(record);
+        case 'Appraisal__c':
+            return this.buildAppraisalContextLinks(record);
+        case 'Marine__Deal__c':
+            return this.buildDealContextLinks(record);
+        default:
+            return [];
+        }
+    }
+
+    buildBoatContextLinks(record) {
+        const links = [
+            createContextLink('unit', 'Unit', record.id, 'Marine__Boat__c', this.getUiFieldDisplayValue(record, 'Name') || this.getUiFieldValue(record, 'Name') || 'Unit')
+        ];
+
+        const appraisalId = this.getUiFieldValue(record, 'Appraisal__c');
+        if (appraisalId) {
+            links.push(
+                createContextLink(
+                    'appraisal',
+                    'Appraisal',
+                    appraisalId,
+                    'Appraisal__c',
+                    this.getUiFieldDisplayValue(record, 'Appraisal__c') || 'Appraisal'
+                )
+            );
+        }
+
+        const dealStage = this.getUiFieldDisplayValue(record, 'Unit_Deal_Stage__c') || this.getUiFieldValue(record, 'Unit_Deal_Stage__c');
+        const hasInContractDeal = this.getUiFieldValue(record, 'In_Contract__c') === true || isInContractStage(dealStage);
+        const dealId = this.getUiFieldValue(record, 'Deal__c');
+        if (dealId && hasInContractDeal) {
+            links.push(
+                createContextLink(
+                    'sales-deal',
+                    'Sales Deal',
+                    dealId,
+                    'Marine__Deal__c',
+                    this.getUiFieldDisplayValue(record, 'Deal__c') || 'Sales Deal'
+                )
+            );
+        }
+
+        return links;
+    }
+
+    buildAppraisalContextLinks(record) {
+        const links = [];
+
+        const boatId = this.getUiFieldValue(record, 'Boat__c');
+        if (boatId) {
+            links.push(
+                createContextLink(
+                    'unit',
+                    'Unit',
+                    boatId,
+                    'Marine__Boat__c',
+                    this.getUiFieldDisplayValue(record, 'Boat__c') || 'Unit'
+                )
+            );
+        }
+
+        links.push(
+            createContextLink(
+                'appraisal',
+                'Appraisal',
+                record.id,
+                'Appraisal__c',
+                this.getUiFieldDisplayValue(record, 'Name') || this.getUiFieldValue(record, 'Name') || 'Appraisal'
+            )
+        );
+
+        const dealId = this.getUiFieldValue(record, 'Deal__c');
+        const dealStage = this.getUiFieldDisplayValue(record, 'Deal_Stage__c') || this.getUiFieldValue(record, 'Deal_Stage__c');
+        if (dealId && isInContractStage(dealStage)) {
+            links.push(
+                createContextLink(
+                    'sales-deal',
+                    'Sales Deal',
+                    dealId,
+                    'Marine__Deal__c',
+                    this.getUiFieldDisplayValue(record, 'Deal__c') || 'Sales Deal'
+                )
+            );
+        }
+
+        return links;
+    }
+
+    buildDealContextLinks(record) {
+        const links = [];
+
+        const boatId = this.getUiFieldValue(record, 'Marine__Boat__c');
+        if (boatId) {
+            links.push(
+                createContextLink(
+                    'unit',
+                    'Unit',
+                    boatId,
+                    'Marine__Boat__c',
+                    this.getUiFieldDisplayValue(record, 'Marine__Boat__c') || 'Unit'
+                )
+            );
+        }
+
+        const appraisalId = this.getUiFieldValue(record, 'Marine__Boat__r.Appraisal__c');
+        if (appraisalId) {
+            links.push(
+                createContextLink(
+                    'appraisal',
+                    'Appraisal',
+                    appraisalId,
+                    'Appraisal__c',
+                    this.getUiFieldDisplayValue(record, 'Marine__Boat__r.Appraisal__c') || 'Appraisal'
+                )
+            );
+        }
+
+        const dealStage = this.getUiFieldDisplayValue(record, 'Marine__Stage__c') || this.getUiFieldValue(record, 'Marine__Stage__c');
+        if (isInContractStage(dealStage)) {
+            links.push(
+                createContextLink(
+                    'sales-deal',
+                    'Sales Deal',
+                    record.id,
+                    'Marine__Deal__c',
+                    this.getUiFieldDisplayValue(record, 'Name') || this.getUiFieldValue(record, 'Name') || 'Sales Deal'
+                )
+            );
+        }
+
+        return links;
+    }
+
+    buildCalendarViewHoverDetails(record, calendarDefinition, objectApiName) {
+        const lines = [];
+
+        if (calendarDefinition?.name) {
+            lines.push(calendarDefinition.name);
+        }
+
+        if (objectApiName === 'Marine__Boat__c') {
+            const stockNumber = this.getUiFieldDisplayValue(record, 'Marine__Stock_Number__c') || this.getUiFieldValue(record, 'Marine__Stock_Number__c');
+            const stage = this.getUiFieldDisplayValue(record, 'Stage__c') || this.getUiFieldValue(record, 'Stage__c');
+
+            if (stockNumber) {
+                lines.push(`Stock #: ${stockNumber}`);
+            }
+
+            if (stage) {
+                lines.push(`Stage: ${stage}`);
+            }
+        }
+
+        if (objectApiName === 'Appraisal__c') {
+            const boatLabel = this.getUiFieldDisplayValue(record, 'Boat__c');
+            const stage = this.getUiFieldDisplayValue(record, 'Stage__c') || this.getUiFieldValue(record, 'Stage__c');
+
+            if (boatLabel) {
+                lines.push(`Unit: ${boatLabel}`);
+            }
+
+            if (stage) {
+                lines.push(`Appraisal: ${stage}`);
+            }
+        }
+
+        if (objectApiName === 'Marine__Deal__c') {
+            const boatLabel = this.getUiFieldDisplayValue(record, 'Marine__Boat__c');
+            const stage = this.getUiFieldDisplayValue(record, 'Marine__Stage__c') || this.getUiFieldValue(record, 'Marine__Stage__c');
+
+            if (boatLabel) {
+                lines.push(`Unit: ${boatLabel}`);
+            }
+
+            if (stage) {
+                lines.push(`Deal: ${stage}`);
+            }
+        }
+
+        return lines.filter(Boolean);
     }
 
     getUiFieldValue(record, fieldApiName) {
@@ -2771,6 +3203,10 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 : recordObjectApiName === 'Task'
                     ? canEdit
                     : recordObjectApiName === 'Calendar_Event__c';
+        const hasContextMenu =
+            row.hasContextMenu !== undefined
+                ? row.hasContextMenu
+                : canDelete || RELATED_RECORD_CONTEXT_OBJECTS.has(recordObjectApiName);
 
         return {
             ...row,
@@ -2779,10 +3215,14 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             calendarColor: this.normalizeCalendarColor(row.calendarColor),
             recordObjectApiName,
             recordContextId: row.recordContextId || row.calendarId || null,
+            contextLinks: Array.isArray(row.contextLinks) ? row.contextLinks : [],
+            hoverDetails: Array.isArray(row.hoverDetails) ? row.hoverDetails : [],
             canEdit,
             canEditAttr: canEdit ? 'true' : 'false',
             canDelete,
-            canDeleteAttr: canDelete ? 'true' : 'false'
+            canDeleteAttr: canDelete ? 'true' : 'false',
+            hasContextMenu,
+            hasContextMenuAttr: hasContextMenu ? 'true' : 'false'
         };
     }
 
@@ -3087,4 +3527,35 @@ function createDefaultGoogleConnection(overrides = {}) {
         googleImportCalendarIds: [],
         ...overrides
     };
+}
+
+function createContextLink(key, label, recordId, objectApiName, recordName) {
+    return {
+        key,
+        label,
+        recordId,
+        objectApiName,
+        recordName: recordName || ''
+    };
+}
+
+function dedupeContextLinks(links) {
+    const linksByKey = new Map();
+
+    (links || []).forEach((link) => {
+        if (!link?.recordId || !link?.label) {
+            return;
+        }
+
+        const key = `${link.label}::${link.recordId}`;
+        if (!linksByKey.has(key)) {
+            linksByKey.set(key, link);
+        }
+    });
+
+    return Array.from(linksByKey.values());
+}
+
+function isInContractStage(value) {
+    return String(value || '').trim().toLowerCase() === 'in contract';
 }

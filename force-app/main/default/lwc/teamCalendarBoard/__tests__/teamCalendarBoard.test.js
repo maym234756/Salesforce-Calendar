@@ -433,6 +433,38 @@ describe('c-team-calendar-board', () => {
     expect(drawer.canDelete).toBe(true);
   });
 
+  it('navigates to calendar-view unit records on left click instead of opening the drawer', async () => {
+    const element = createElement('c-team-calendar-board', {
+      is: TeamCalendarBoard
+    });
+    document.body.appendChild(element);
+    await flushPromises();
+
+    const grid = element.shadowRoot.querySelector('c-calendar-grid');
+    grid.dispatchEvent(
+      new CustomEvent('eventopen', {
+        detail: {
+          recordId: 'a01000000000001AAA',
+          recordObjectApiName: 'Marine__Boat__c',
+          recordContextId: '03A000000000001AAA',
+          canEdit: false,
+          canDelete: false
+        }
+      })
+    );
+    await flushPromises();
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      type: 'standard__recordPage',
+      attributes: {
+        recordId: 'a01000000000001AAA',
+        objectApiName: 'Marine__Boat__c',
+        actionName: 'view'
+      }
+    });
+    expect(element.shadowRoot.querySelector('c-calendar-event-drawer')).toBeNull();
+  });
+
   it('moves a calendar event to a dropped day and preserves its duration', async () => {
     getEventsForRange.mockResolvedValue([
       {
@@ -480,5 +512,120 @@ describe('c-team-calendar-board', () => {
     expect(request.notes).toBe('Dragged');
     expect(request.startValue).toContain('2026-03-05');
     expect(request.endValue).toContain('2026-03-05');
+  });
+
+  it('shows related record actions for unit calendar-view events without a delete action', async () => {
+    const element = createElement('c-team-calendar-board', {
+      is: TeamCalendarBoard
+    });
+    document.body.appendChild(element);
+    await flushPromises();
+
+    element.events = [
+      {
+        id: 'a01000000000001AAA',
+        name: "2024 12' YAMAHA FX",
+        start: '2026-04-18T00:00:00.000Z',
+        endDateTime: null,
+        allDay: true,
+        calendarName: 'Avail Units - All Stores',
+        recordObjectApiName: 'Marine__Boat__c',
+        recordContextId: '03A000000000001AAA',
+        canDelete: false,
+        hasContextMenu: true,
+        contextLinks: [
+          {
+            key: 'unit',
+            label: 'Unit',
+            recordId: 'a01000000000001AAA',
+            objectApiName: 'Marine__Boat__c',
+            recordName: "2024 12' YAMAHA FX"
+          },
+          {
+            key: 'appraisal',
+            label: 'Appraisal',
+            recordId: 'a09000000000001AAA',
+            objectApiName: 'Appraisal__c',
+            recordName: 'Conroe / Demoore'
+          },
+          {
+            key: 'sales-deal',
+            label: 'Sales Deal',
+            recordId: 'a0C000000000001AAA',
+            objectApiName: 'Marine__Deal__c',
+            recordName: 'Beaumont / Defoore'
+          }
+        ]
+      }
+    ];
+
+    const grid = element.shadowRoot.querySelector('c-calendar-grid');
+    grid.dispatchEvent(
+      new CustomEvent('eventcontextmenu', {
+        detail: {
+          recordId: 'a01000000000001AAA',
+          recordName: "2024 12' YAMAHA FX",
+          recordObjectApiName: 'Marine__Boat__c',
+          recordContextId: '03A000000000001AAA',
+          clientX: 200,
+          clientY: 220,
+          canDelete: false,
+          canContextMenu: true
+        }
+      })
+    );
+    await flushPromises();
+
+    const labels = Array.from(element.shadowRoot.querySelectorAll('.event-context-menu__item-label')).map((node) => node.textContent.trim());
+    expect(labels).toEqual(expect.arrayContaining(['Unit', 'Appraisal', 'Sales Deal']));
+    expect(labels.some((label) => label.includes('Delete'))).toBe(false);
+  });
+
+  it('renders a hover preview for hovered calendar events', async () => {
+    const element = createElement('c-team-calendar-board', {
+      is: TeamCalendarBoard
+    });
+    document.body.appendChild(element);
+    await flushPromises();
+
+    element.events = [
+      {
+        id: 'a01000000000001AAA',
+        name: '2020 20\' EXCEL 203 BAY PRO',
+        start: '2026-04-18T13:00:00.000Z',
+        endDateTime: '2026-04-18T14:00:00.000Z',
+        allDay: false,
+        calendarName: 'Avail Units - All Stores',
+        recordObjectApiName: 'Marine__Boat__c',
+        recordContextId: '03A000000000001AAA',
+        canDelete: false,
+        hasContextMenu: true,
+        hoverDetails: ['Stock #: TRA-013A', 'Stage: Available for Sale']
+      }
+    ];
+
+    const grid = element.shadowRoot.querySelector('c-calendar-grid');
+    grid.dispatchEvent(
+      new CustomEvent('eventhover', {
+        detail: {
+          recordId: 'a01000000000001AAA',
+          recordName: '2020 20\' EXCEL 203 BAY PRO',
+          recordObjectApiName: 'Marine__Boat__c',
+          recordContextId: '03A000000000001AAA',
+          canDelete: false,
+          canContextMenu: true,
+          clientX: 180,
+          clientY: 160
+        },
+        bubbles: true,
+        composed: true
+      })
+    );
+    await flushPromises();
+
+    const hoverCard = element.shadowRoot.querySelector('.event-hover-card');
+    expect(hoverCard).not.toBeNull();
+    expect(hoverCard.textContent).toContain('2020 20\' EXCEL 203 BAY PRO');
+    expect(hoverCard.textContent).toContain('Stock #: TRA-013A');
   });
 });

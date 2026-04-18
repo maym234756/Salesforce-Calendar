@@ -54,7 +54,10 @@ export default class CalendarAgenda extends LightningElement {
                     recordName: event.currentTarget.dataset.name || '',
                     recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
                     recordContextId: event.currentTarget.dataset.recordContextId || null,
-                    canDelete: event.currentTarget.dataset.canDelete === 'true'
+                    canDelete: event.currentTarget.dataset.canDelete === 'true',
+                    canContextMenu: event.currentTarget.dataset.canContextMenu === 'true',
+                    clientX: event.clientX,
+                    clientY: event.clientY
                 },
                 bubbles: true,
                 composed: true
@@ -97,7 +100,7 @@ export default class CalendarAgenda extends LightningElement {
         }
 
         this.hoveredRecordId = source.dataset.id;
-        this.dispatchHoverEvent(source);
+        this.dispatchHoverEvent(source, event);
     }
 
     handleNativeHoverOut(event) {
@@ -144,7 +147,7 @@ export default class CalendarAgenda extends LightningElement {
             return null;
         }
 
-        const source = target.closest('button[data-id][data-can-delete="true"]');
+        const source = target.closest('button[data-id][data-can-context-menu="true"]');
         return source || null;
     }
 
@@ -157,7 +160,7 @@ export default class CalendarAgenda extends LightningElement {
         return target.closest('button[data-id]');
     }
 
-    dispatchHoverEvent(source) {
+    dispatchHoverEvent(source, event) {
         this.dispatchEvent(
             new CustomEvent('eventhover', {
                 detail: {
@@ -165,7 +168,10 @@ export default class CalendarAgenda extends LightningElement {
                     recordName: source.dataset.name || '',
                     recordObjectApiName: source.dataset.recordObjectApiName || null,
                     recordContextId: source.dataset.recordContextId || null,
-                    canDelete: source.dataset.canDelete !== 'false'
+                    canDelete: source.dataset.canDelete === 'true',
+                    canContextMenu: source.dataset.canContextMenu === 'true',
+                    clientX: event.clientX,
+                    clientY: event.clientY
                 },
                 bubbles: true,
                 composed: true
@@ -183,7 +189,8 @@ export default class CalendarAgenda extends LightningElement {
                     recordContextId: source.dataset.recordContextId || null,
                     clientX: event.clientX,
                     clientY: event.clientY,
-                    canDelete: true
+                    canDelete: source.dataset.canDelete === 'true',
+                    canContextMenu: source.dataset.canContextMenu === 'true'
                 },
                 bubbles: true,
                 composed: true
@@ -192,7 +199,7 @@ export default class CalendarAgenda extends LightningElement {
     }
 
     handleEventPointerDown(event) {
-        if (event.button !== 2 || event.currentTarget.dataset.canDelete !== 'true') {
+        if (event.button !== 2 || event.currentTarget.dataset.canContextMenu !== 'true') {
             return;
         }
 
@@ -208,7 +215,8 @@ export default class CalendarAgenda extends LightningElement {
                     recordContextId: event.currentTarget.dataset.recordContextId || null,
                     clientX: event.clientX,
                     clientY: event.clientY,
-                    canDelete: true
+                    canDelete: event.currentTarget.dataset.canDelete === 'true',
+                    canContextMenu: event.currentTarget.dataset.canContextMenu === 'true'
                 },
                 bubbles: true,
                 composed: true
@@ -217,7 +225,7 @@ export default class CalendarAgenda extends LightningElement {
     }
 
     handleEventContextMenu(event) {
-        if (event.currentTarget.dataset.canDelete !== 'true') {
+        if (event.currentTarget.dataset.canContextMenu !== 'true') {
             return;
         }
 
@@ -233,7 +241,8 @@ export default class CalendarAgenda extends LightningElement {
                     recordContextId: event.currentTarget.dataset.recordContextId || null,
                     clientX: event.clientX,
                     clientY: event.clientY,
-                    canDelete: true
+                    canDelete: event.currentTarget.dataset.canDelete === 'true',
+                    canContextMenu: event.currentTarget.dataset.canContextMenu === 'true'
                 },
                 bubbles: true,
                 composed: true
@@ -242,7 +251,7 @@ export default class CalendarAgenda extends LightningElement {
     }
 
     handleEventMouseDown(event) {
-        if (event.button !== 2 || event.currentTarget.dataset.canDelete !== 'true') {
+        if (event.button !== 2 || event.currentTarget.dataset.canContextMenu !== 'true') {
             return;
         }
 
@@ -258,7 +267,8 @@ export default class CalendarAgenda extends LightningElement {
                     recordContextId: event.currentTarget.dataset.recordContextId || null,
                     clientX: event.clientX,
                     clientY: event.clientY,
-                    canDelete: true
+                    canDelete: event.currentTarget.dataset.canDelete === 'true',
+                    canContextMenu: event.currentTarget.dataset.canContextMenu === 'true'
                 },
                 bubbles: true,
                 composed: true
