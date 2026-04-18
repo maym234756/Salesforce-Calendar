@@ -45,6 +45,7 @@ const CalendarSecurityManager = require('c/calendarSecurityManager').default;
 const getSecurityUsers = require('@salesforce/apex/TeamCalendarSecurityController.getSecurityUsers').default;
 const getCalendarViewsForSecurity = require('@salesforce/apex/TeamCalendarSecurityController.getCalendarViewsForSecurity').default;
 const getUserCalendarAccess = require('@salesforce/apex/TeamCalendarSecurityController.getUserCalendarAccess').default;
+const saveUserCalendarAccess = require('@salesforce/apex/TeamCalendarSecurityController.saveUserCalendarAccess').default;
 const saveUserLayoutPreference = require('@salesforce/apex/TeamCalendarSecurityController.saveUserLayoutPreference').default;
 
 const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -236,6 +237,86 @@ describe('c-calendar-security-manager', () => {
     ).map((node) => node.textContent.trim());
 
     expect(summaries).toEqual(['Editor', 'View Only', 'View Only']);
+  });
+
+  it('normalizes dependent access flags before saving access rules', async () => {
+    setupMocks();
+
+    const element = createElement('c-calendar-security-manager', {
+      is: CalendarSecurityManager
+    });
+    document.body.appendChild(element);
+    await flushPromises();
+
+    await openSecurityModal(element);
+
+    element.allAccessRows = [
+      {
+        id: '00U1',
+        name: 'Albert Open Tasks',
+        ownerId: '005O1',
+        ownerName: 'Albert Hylton',
+        canView: false,
+        canCreate: false,
+        canEdit: true,
+        canDelete: true,
+        canAssignUsers: false,
+        canManageSecurity: false,
+        isActive: true,
+        notes: ''
+      }
+    ];
+    await flushPromises();
+
+    element.shadowRoot.querySelector('.slds-button_brand').click();
+    await flushPromises();
+
+    const payload = JSON.parse(saveUserCalendarAccess.mock.calls[0][0].rulesJson);
+    expect(payload[0].canView).toBe(true);
+    expect(payload[0].canEdit).toBe(true);
+    expect(payload[0].canDelete).toBe(true);
+  });
+
+  it('editor preset clears stronger permissions on the target row', async () => {
+    setupMocks();
+
+    const element = createElement('c-calendar-security-manager', {
+      is: CalendarSecurityManager
+    });
+    document.body.appendChild(element);
+    await flushPromises();
+
+    await openSecurityModal(element);
+
+    element.allAccessRows = [
+      {
+        id: '00U1',
+        name: 'Albert Open Tasks',
+        ownerId: '005O1',
+        ownerName: 'Albert Hylton',
+        canView: true,
+        canCreate: true,
+        canEdit: true,
+        canDelete: true,
+        canAssignUsers: true,
+        canManageSecurity: true,
+        isActive: true,
+        notes: ''
+      }
+    ];
+    await flushPromises();
+
+    element.shadowRoot
+      .querySelector('.security-row-preset__button[data-preset="editor"]')
+      .click();
+    await flushPromises();
+
+    expect(element.allAccessRows[0].canView).toBe(true);
+    expect(element.allAccessRows[0].canCreate).toBe(true);
+    expect(element.allAccessRows[0].canEdit).toBe(true);
+    expect(element.allAccessRows[0].canDelete).toBe(false);
+    expect(element.allAccessRows[0].canAssignUsers).toBe(false);
+    expect(element.allAccessRows[0].canManageSecurity).toBe(false);
   });
 
   it('applies the focused layout preset and saves the resulting preference payload', async () => {

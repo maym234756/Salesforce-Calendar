@@ -98,11 +98,9 @@
                     </div>
                 </template>
 
-                <template if:true={showSecurityManager}>
-                    <div class="slds-col slds-grow-none">
-                        <c-calendar-security-manager></c-calendar-security-manager>
-                    </div>
-                </template>
+                <div class="slds-col slds-grow-none">
+                    <c-calendar-security-manager></c-calendar-security-manager>
+                </div>
 
                 <template if:true={showFilterControls}>
                     <div class="slds-col slds-grow-none" style="min-width: 9rem; max-width: 10rem;">
@@ -310,8 +308,9 @@
                         type="button"
                         onclick={emitGoogleImportAction}
                         disabled={googleImportActionDisabled}
+                        title={resolvedGoogleImportActionLabel}
                     >
-                        Salesforce &gt; Google
+                        {resolvedGoogleImportActionLabel}
                     </button>
 
                     <button
@@ -319,8 +318,9 @@
                         type="button"
                         onclick={emitGoogleExportAction}
                         disabled={googleExportActionDisabled}
+                        title={resolvedGoogleExportActionLabel}
                     >
-                        Google &gt; Salesforce
+                        {resolvedGoogleExportActionLabel}
                     </button>
                 </section>
             </aside>

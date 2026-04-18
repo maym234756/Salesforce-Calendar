@@ -515,13 +515,7 @@ describe('c-team-calendar-board', () => {
   });
 
   it('shows related record actions for unit calendar-view events without a delete action', async () => {
-    const element = createElement('c-team-calendar-board', {
-      is: TeamCalendarBoard
-    });
-    document.body.appendChild(element);
-    await flushPromises();
-
-    element.events = [
+    getEventsForRange.mockResolvedValueOnce([
       {
         id: 'a01000000000001AAA',
         name: "2024 12' YAMAHA FX",
@@ -557,7 +551,13 @@ describe('c-team-calendar-board', () => {
           }
         ]
       }
-    ];
+    ]);
+
+    const element = createElement('c-team-calendar-board', {
+      is: TeamCalendarBoard
+    });
+    document.body.appendChild(element);
+    await flushPromises();
 
     const grid = element.shadowRoot.querySelector('c-calendar-grid');
     grid.dispatchEvent(
@@ -582,13 +582,7 @@ describe('c-team-calendar-board', () => {
   });
 
   it('renders a hover preview for hovered calendar events', async () => {
-    const element = createElement('c-team-calendar-board', {
-      is: TeamCalendarBoard
-    });
-    document.body.appendChild(element);
-    await flushPromises();
-
-    element.events = [
+    getEventsForRange.mockResolvedValueOnce([
       {
         id: 'a01000000000001AAA',
         name: '2020 20\' EXCEL 203 BAY PRO',
@@ -602,7 +596,13 @@ describe('c-team-calendar-board', () => {
         hasContextMenu: true,
         hoverDetails: ['Stock #: TRA-013A', 'Stage: Available for Sale']
       }
-    ];
+    ]);
+
+    const element = createElement('c-team-calendar-board', {
+      is: TeamCalendarBoard
+    });
+    document.body.appendChild(element);
+    await flushPromises();
 
     const grid = element.shadowRoot.querySelector('c-calendar-grid');
     grid.dispatchEvent(
@@ -628,4 +628,5 @@ describe('c-team-calendar-board', () => {
     expect(hoverCard.textContent).toContain('2020 20\' EXCEL 203 BAY PRO');
     expect(hoverCard.textContent).toContain('Stock #: TRA-013A');
   });
+
 });

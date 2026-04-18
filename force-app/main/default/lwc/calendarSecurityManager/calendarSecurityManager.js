@@ -152,6 +152,41 @@ function normalizeLayoutDraft(rawValue, defaultAllowedSelectedUserIds = []) {
     };
 }
 
+function normalizeAccessRow(row) {
+    const normalized = {
+        ...row,
+        canView: row?.canView === true,
+        canCreate: row?.canCreate === true,
+        canEdit: row?.canEdit === true,
+        canDelete: row?.canDelete === true,
+        canAssignUsers: row?.canAssignUsers === true,
+        canManageSecurity: row?.canManageSecurity === true,
+        isActive: row?.isActive === true
+    };
+
+    const hasElevatedAccess =
+        normalized.canCreate ||
+        normalized.canEdit ||
+        normalized.canDelete ||
+        normalized.canAssignUsers ||
+        normalized.canManageSecurity;
+
+    if (hasElevatedAccess) {
+        normalized.canView = true;
+        normalized.isActive = true;
+    }
+
+    if (!normalized.canView) {
+        normalized.canCreate = false;
+        normalized.canEdit = false;
+        normalized.canDelete = false;
+        normalized.canAssignUsers = false;
+        normalized.canManageSecurity = false;
+    }
+
+    return normalized;
+}
+
 export default class CalendarSecurityManager extends LightningElement {
     @track users = [];
     @track calendarViews = [];
@@ -228,7 +263,7 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     buildAccessRow(viewRow, existingRule) {
-        return {
+        return normalizeAccessRow({
             id: viewRow.id,
             name: viewRow.name,
             ownerId: viewRow.ownerId,
@@ -247,7 +282,7 @@ export default class CalendarSecurityManager extends LightningElement {
             canManageSecurity: existingRule ? existingRule.canManageSecurity === true : false,
             isActive: existingRule ? existingRule.isActive === true : false,
             notes: existingRule ? existingRule.notes || '' : ''
-        };
+        });
     }
 
     get showGear() {
@@ -773,7 +808,7 @@ export default class CalendarSecurityManager extends LightningElement {
                 }
             }
 
-            return updated;
+            return normalizeAccessRow(updated);
         });
 
         this.enforceAccessibleDefaultCalendar();
@@ -801,7 +836,7 @@ export default class CalendarSecurityManager extends LightningElement {
             updatedCount += 1;
 
             if (actionName === 'viewOnly') {
-                return {
+                return normalizeAccessRow({
                     ...row,
                     canView: true,
                     canCreate: false,
@@ -810,21 +845,24 @@ export default class CalendarSecurityManager extends LightningElement {
                     canAssignUsers: false,
                     canManageSecurity: false,
                     isActive: true
-                };
+                });
             }
 
             if (actionName === 'editor') {
-                return {
+                return normalizeAccessRow({
                     ...row,
                     canView: true,
                     canCreate: true,
                     canEdit: true,
+                    canDelete: false,
+                    canAssignUsers: false,
+                    canManageSecurity: false,
                     isActive: true
-                };
+                });
             }
 
             if (actionName === 'clear') {
-                return {
+                return normalizeAccessRow({
                     ...row,
                     canView: false,
                     canCreate: false,
@@ -833,7 +871,7 @@ export default class CalendarSecurityManager extends LightningElement {
                     canAssignUsers: false,
                     canManageSecurity: false,
                     isActive: false
-                };
+                });
             }
 
             return row;
@@ -1349,7 +1387,7 @@ export default class CalendarSecurityManager extends LightningElement {
             }
 
             if (preset === 'viewOnly') {
-                return {
+                return normalizeAccessRow({
                     ...row,
                     canView: true,
                     canCreate: false,
@@ -1358,21 +1396,24 @@ export default class CalendarSecurityManager extends LightningElement {
                     canAssignUsers: false,
                     canManageSecurity: false,
                     isActive: true
-                };
+                });
             }
 
             if (preset === 'editor') {
-                return {
+                return normalizeAccessRow({
                     ...row,
                     canView: true,
                     canCreate: true,
                     canEdit: true,
+                    canDelete: false,
+                    canAssignUsers: false,
+                    canManageSecurity: false,
                     isActive: true
-                };
+                });
             }
 
             if (preset === 'clear') {
-                return {
+                return normalizeAccessRow({
                     ...row,
                     canView: false,
                     canCreate: false,
@@ -1381,7 +1422,7 @@ export default class CalendarSecurityManager extends LightningElement {
                     canAssignUsers: false,
                     canManageSecurity: false,
                     isActive: false
-                };
+                });
             }
 
             return row;

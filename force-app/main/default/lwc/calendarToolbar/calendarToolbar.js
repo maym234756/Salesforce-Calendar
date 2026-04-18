@@ -265,10 +265,6 @@ export default class CalendarToolbar extends LightningElement {
         });
     }
 
-    get showSecurityManager() {
-        return this.layoutSettings.showSecurityButton;
-    }
-
     get showTodayButton() {
         return this.layoutSettings.showTodayButton;
     }
@@ -311,6 +307,14 @@ export default class CalendarToolbar extends LightningElement {
 
     get showSidePanel() {
         return true;
+    }
+
+    get resolvedGoogleImportActionLabel() {
+        return this.googleImportActionLabel || 'Google > Salesforce';
+    }
+
+    get resolvedGoogleExportActionLabel() {
+        return this.googleExportActionLabel || 'Salesforce > Google';
     }
 
     emitToday() {

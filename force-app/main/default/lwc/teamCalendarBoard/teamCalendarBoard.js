@@ -1019,7 +1019,11 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
-        const googleCalendarIds = Array.isArray(event.detail) ? event.detail : [];
+        const googleCalendarIds = Array.isArray(event.detail?.value)
+            ? event.detail.value
+            : Array.isArray(event.detail)
+                ? event.detail
+                : [];
         this.isGoogleBusy = true;
 
         try {

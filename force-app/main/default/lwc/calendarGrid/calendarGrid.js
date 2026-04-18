@@ -17,10 +17,10 @@ export default class CalendarGrid extends LightningElement {
             return;
         }
 
-        this.template.addEventListener('mouseover', this.handleNativeHoverOver.bind(this), true);
-        this.template.addEventListener('mouseout', this.handleNativeHoverOut.bind(this), true);
-        this.template.addEventListener('mousedown', this.handleNativeQuickActionMouseDown.bind(this), true);
-        this.template.addEventListener('contextmenu', this.handleNativeQuickActionContextMenu.bind(this), true);
+        this.template.addEventListener('mouseover', this.handleNativeHoverOver.bind(this));
+        this.template.addEventListener('mouseout', this.handleNativeHoverOut.bind(this));
+        this.template.addEventListener('mousedown', this.handleNativeQuickActionMouseDown.bind(this));
+        this.template.addEventListener('contextmenu', this.handleNativeQuickActionContextMenu.bind(this));
         this.hasNativeQuickActionListeners = true;
     }
 
