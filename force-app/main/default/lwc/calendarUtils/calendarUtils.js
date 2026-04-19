@@ -239,7 +239,7 @@ function buildRenderedEvent(eventRecord, occurrenceKey) {
         hoverText: buildHoverText(eventRecord, start, end, occurrenceKey),
         className: eventClass(eventRecord.status, isContinuation),
         styleText: buildEventStyle(calendarColor),
-        colorBarStyle: `background:${calendarColor};`,
+        colorBarStyle: `background:${sanitizeColor(calendarColor)};`,
         sortValue: isAllDay ? 0 : start.getTime(),
         isAllDay,
         isContinuation,
@@ -334,7 +334,7 @@ function buildHoverText(eventRecord, start, end, occurrenceKey) {
 }
 
 function buildEventStyle(calendarColor) {
-    const color = calendarColor || '#1b96ff';
+    const color = sanitizeColor(calendarColor);
     const textColor = readableTextColor(color);
 
     return [
@@ -412,8 +412,15 @@ function formatTime(dateValue) {
     }).format(dateValue);
 }
 
+const DEFAULT_COLOR = '#1b96ff';
+const HEX_COLOR_REGEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+function sanitizeColor(colorValue) {
+    return HEX_COLOR_REGEX.test(colorValue || '') ? colorValue : DEFAULT_COLOR;
+}
+
 function readableTextColor(colorValue) {
-    if (!/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(colorValue || '')) {
+    if (!HEX_COLOR_REGEX.test(colorValue || '')) {
         return '#080707';
     }
 

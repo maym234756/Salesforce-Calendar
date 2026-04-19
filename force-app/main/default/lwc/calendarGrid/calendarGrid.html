@@ -8,25 +8,24 @@
 <template>
     <template if:true={hasWeeks}>
         <div class={shellClass}>
-            <div class="weekdays">
-                <div class="weekday">Sun</div>
-                <div class="weekday">Mon</div>
-                <div class="weekday">Tue</div>
-                <div class="weekday">Wed</div>
-                <div class="weekday">Thu</div>
-                <div class="weekday">Fri</div>
-                <div class="weekday">Sat</div>
+            <div class="weekdays" style={columnsStyle}>
+                <template for:each={weekdayHeaders} for:item="header">
+                    <div key={header.key} class="weekday">{header.label}</div>
+                </template>
             </div>
 
             <div class={gridClass} style={gridStyle}>
-                <template for:each={weeks} for:item="week">
+                <template for:each={filteredWeeks} for:item="week">
                     <template for:each={week.days} for:item="day">
                         <div
                             key={day.key}
                             class={day.className}
                             data-date={day.key}
                             data-current-month={day.currentMonthAttr}
+                            role="button"
+                            tabindex="0"
                             onclick={handleDayClick}
+                            onkeydown={handleDayKeyDown}
                             ondragover={handleDayDragOver}
                             ondragleave={handleDayDragLeave}
                             ondrop={handleDayDrop}

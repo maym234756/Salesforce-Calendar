@@ -150,7 +150,11 @@ public with sharing class TeamCalendarPdfController {
         Set<Id> scopedIds = new Set<Id>();
         for (String rawId : selectedUserIds) {
             if (!String.isBlank(rawId)) {
-                scopedIds.add((Id) rawId);
+                try {
+                    scopedIds.add((Id) rawId);
+                } catch (Exception ex) {
+                    // skip malformed id values from URL parameters
+                }
             }
         }
 

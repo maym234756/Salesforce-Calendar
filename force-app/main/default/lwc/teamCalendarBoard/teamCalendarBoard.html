@@ -115,9 +115,6 @@
                         <template if:true={isAgendaView}>
                             <c-calendar-agenda
                                 groups={agendaGroups}
-                                show-weekends={showWeekends}
-                                wrap-event-titles={wrapEventTitles}
-                                compact-event-density={compactEventDensity}
                                 ondayselect={handleDaySelect}
                                 oneventopen={handleEventOpen}
                                 oneventhover={handleEventHover}
@@ -261,7 +258,7 @@
                     <section class="event-hover-card" style={hoveredEventPreviewStyle} role="tooltip">
                         <div class="event-hover-card__title">{hoveredEventPreview.title}</div>
                         <template for:each={hoveredEventPreview.lines} for:item="line">
-                            <div key={line} class="event-hover-card__line">{line}</div>
+                            <div key={line.key} class="event-hover-card__line">{line.text}</div>
                         </template>
                     </section>
                 </template>
@@ -269,10 +266,10 @@
         </div>
 
         <template if:true={showGoogleConnectModal}>
-            <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open google-connect-modal">
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-connect-heading" class="slds-modal slds-fade-in-open google-connect-modal">
                 <div class="slds-modal__container">
                     <header class="slds-modal__header">
-                        <h2 class="slds-text-heading_medium">Connect Google Calendar</h2>
+                        <h2 id="google-connect-heading" class="slds-text-heading_medium">Connect Google Calendar</h2>
                     </header>
 
                     <div class="slds-modal__content slds-p-around_medium">
@@ -300,10 +297,10 @@
         </template>
 
         <template if:true={showGoogleImportModal}>
-            <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open google-connect-modal">
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-import-heading" class="slds-modal slds-fade-in-open google-connect-modal">
                 <div class="slds-modal__container">
                     <header class="slds-modal__header">
-                        <h2 class="slds-text-heading_medium">{googleImportModalTitle}</h2>
+                        <h2 id="google-import-heading" class="slds-text-heading_medium">{googleImportModalTitle}</h2>
                     </header>
 
                     <div class="slds-modal__content slds-p-around_medium">
@@ -386,10 +383,10 @@
         </template>
 
         <template if:true={showGoogleExportModal}>
-            <section role="dialog" tabindex="-1" aria-modal="true" class="slds-modal slds-fade-in-open google-connect-modal">
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-export-heading" class="slds-modal slds-fade-in-open google-connect-modal">
                 <div class="slds-modal__container">
                     <header class="slds-modal__header">
-                        <h2 class="slds-text-heading_medium">{googleExportModalTitle}</h2>
+                        <h2 id="google-export-heading" class="slds-text-heading_medium">{googleExportModalTitle}</h2>
                     </header>
 
                     <div class="slds-modal__content slds-p-around_medium">
@@ -469,6 +466,24 @@
                                 </button>
                             </template>
                         </template>
+                    </footer>
+                </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+        </template>
+
+        <template if:true={pendingDeleteConfirm}>
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="delete-confirm-heading" class="slds-modal slds-fade-in-open">
+                <div class="slds-modal__container" style="max-width:25rem;">
+                    <header class="slds-modal__header">
+                        <h2 id="delete-confirm-heading" class="slds-text-heading_medium">Confirm Delete</h2>
+                    </header>
+                    <div class="slds-modal__content slds-p-around_medium">
+                        <p>{pendingDeleteConfirm.message}</p>
+                    </div>
+                    <footer class="slds-modal__footer">
+                        <button type="button" class="slds-button slds-button_neutral" onclick={handleCancelDelete}>Cancel</button>
+                        <button type="button" class="slds-button slds-button_destructive" onclick={handleConfirmDelete}>Delete</button>
                     </footer>
                 </div>
             </section>

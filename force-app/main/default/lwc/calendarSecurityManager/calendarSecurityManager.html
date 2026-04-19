@@ -18,7 +18,7 @@
     </template>
 
     <template if:true={isOpen}>
-        <section class="slds-modal slds-fade-in-open security-modal">
+        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="security-modal-heading" class="slds-modal slds-fade-in-open security-modal">
             <div class="slds-modal__container security-modal__container">
                 <header class="slds-modal__header">
                     <button
@@ -29,7 +29,7 @@
                         <lightning-icon icon-name="utility:close" size="small" alternative-text="Close">
                         </lightning-icon>
                     </button>
-                    <h2 class="slds-text-heading_medium">Calendar Security Manager</h2>
+                    <h2 id="security-modal-heading" class="slds-text-heading_medium">Calendar Security Manager</h2>
                     <p class="security-modal__subtitle">{selectedUserLabel}</p>
                 </header>
 
@@ -705,6 +705,29 @@
                                                     </lightning-input>
                                                 </div>
                                             </div>
+
+                                            <div class="security-layout-grid__item">
+                                                <div class="security-layout-grid__pair">
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="Show Sync panel"
+                                                        checked={layoutDraft.showSyncPanel}
+                                                        data-field="showSyncPanel"
+                                                        onchange={handleLayoutFieldChange}
+                                                    >
+                                                    </lightning-input>
+
+                                                    <lightning-input
+                                                        type="checkbox"
+                                                        label="All users"
+                                                        checked={layoutDraft.showSyncPanel}
+                                                        data-field="showSyncPanel"
+                                                        disabled={isAllUsersUpdateDisabled}
+                                                        onchange={handleLayoutFieldAllUsersChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <div class="security-layout-summary">
@@ -942,11 +965,12 @@
                 </div>
 
                 <footer class="slds-modal__footer">
-                    <button class="slds-button slds-button_neutral" onclick={closeModal}>
+                    <button type="button" class="slds-button slds-button_neutral" onclick={closeModal}>
                         Cancel
                     </button>
 
                     <button
+                        type="button"
                         class="slds-button slds-button_brand"
                         onclick={handleSave}
                         disabled={isSaving}

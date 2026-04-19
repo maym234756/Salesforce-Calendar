@@ -811,6 +811,16 @@ export default class CalendarCreateModal extends LightningElement {
             return false;
         }
 
+        if (!fields.Start__c) {
+            this.formError = 'A start date and time is required.';
+            return false;
+        }
+
+        if (!fields.End__c) {
+            this.formError = 'An end date and time is required.';
+            return false;
+        }
+
         if (
             this.showCustomerConnection &&
             !fields.Customer_Account__c &&

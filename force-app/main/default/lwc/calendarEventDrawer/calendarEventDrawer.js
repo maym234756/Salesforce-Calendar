@@ -49,10 +49,6 @@ const EVENT_STATUS_OPTIONS = [
     { label: 'Cancelled', value: 'Cancelled' }
 ];
 
-function requestDeleteConfirmation(recordTypeLabel) {
-    return window.confirm('Delete this ' + recordTypeLabel + '?');
-}
-
 export default class CalendarEventDrawer extends NavigationMixin(LightningElement) {
     @api recordId;
     @api objectApiName = 'Calendar_Event__c';
@@ -63,6 +59,7 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
     isEditMode = false;
     isSaving = false;
     isDeleting = false;
+    showDeleteConfirm = false;
     isEventStateLoading = false;
     taskDraft = null;
     eventDraft = null;
@@ -335,7 +332,6 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
                     message: this.extractErrorMessage(error)
                 }
             });
-            throw error;
         } finally {
             this.isEventStateLoading = false;
         }
@@ -519,11 +515,16 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
             return;
         }
 
-        const recordTypeLabel = this.isTaskRecord ? 'task' : 'event';
-        const confirmed = requestDeleteConfirmation(recordTypeLabel);
-        if (!confirmed) {
-            return;
-        }
+        this.deleteConfirmMessage = 'Delete this ' + (this.isTaskRecord ? 'task' : 'event') + '?';
+        this.showDeleteConfirm = true;
+    }
+
+    handleCancelDelete() {
+        this.showDeleteConfirm = false;
+    }
+
+    handleConfirmDelete() {
+        this.showDeleteConfirm = false;
 
         this.isDeleting = true;
 
@@ -588,57 +589,6 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
                 variant: 'error'
             })
         );
-    }
-
-    handleSubmit(event) {
-        event.preventDefault();
-
-        if (!this.recordId) {
-            return;
-        }
-
-        this.isSaving = true;
-        const fields = event.detail?.fields || {};
-
-        const requestPromise = this.isTaskRecord
-            ? updateTask({
-                requestJson: JSON.stringify({
-                    recordId: this.recordId,
-                    calendarViewId: this.recordContextId || null,
-                    subject: fields.Subject || null,
-                    ownerId: fields.OwnerId || null,
-                    activityDate: fields.ActivityDate || null,
-                    status: fields.Status || null,
-                    priority: fields.Priority || null,
-                    whatId: fields.WhatId || null,
-                    whoId: fields.WhoId || null,
-                    description: fields.Description || null
-                })
-            })
-            : updateCalendarEvent({
-                requestJson: JSON.stringify({
-                    recordId: this.recordId,
-                    calendarId: fields.Calendar__c || null,
-                    name: fields.Name || null,
-                    startValue: fields.Start__c || null,
-                    endValue: fields.End__c || null,
-                    allDay: fields.All_Day__c === true,
-                    status: fields.Status__c || null,
-                    notes: fields.Notes__c || null
-                })
-            });
-
-        requestPromise
-            .then(() => {
-                this.handleSuccess();
-            })
-            .catch((error) => {
-                this.handleError({
-                    detail: {
-                        message: this.extractErrorMessage(error)
-                    }
-                });
-            });
     }
 
     formatInputDateValue(rawValue, isAllDay) {

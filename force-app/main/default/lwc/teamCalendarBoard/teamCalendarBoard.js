@@ -6,6 +6,7 @@ import getActiveUsers from '@salesforce/apex/TeamCalendarBoardController.getActi
 import getUserCalendars from '@salesforce/apex/TeamCalendarBoardController.getUserCalendars';
 import getEventsForRange from '@salesforce/apex/TeamCalendarBoardController.getEventsForRange';
 import getPdfExportPageUrl from '@salesforce/apex/TeamCalendarBoardController.getPdfExportPageUrl';
+import getTaskEventsForCalendarViews from '@salesforce/apex/TeamCalendarBoardController.getTaskEventsForCalendarViews';
 import getCurrentUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityController.getCurrentUserLayoutPreference';
 import pushEventsForCalendar from '@salesforce/apex/GoogleCalendarSyncService.pushEventsForCalendar';
 import importEventsFromGoogle from '@salesforce/apex/GoogleCalendarSyncService.importEventsFromGoogle';
@@ -42,6 +43,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     showDrawer = false;
     isDeletingEvent = false;
     isMovingEvent = false;
+    pendingDeleteConfirm = null;
 
     selectedCalendarId = '';
     selectedStatus = '';
@@ -176,6 +178,20 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
     get eventCount() {
         return this.events.length;
+    }
+
+    get legendItems() {
+        return (this.calendarDefinitions || [])
+            .filter((row) => row.isDisplayed)
+            .map((row) => ({
+                id: row.id,
+                label: row.name,
+                color: row.color
+            }));
+    }
+
+    get hasLegendItems() {
+        return this.legendItems.length > 0;
     }
 
     get selectedUserCount() {
@@ -778,7 +794,11 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         const primarySelectedDefinitionId = this.selectedCalendarDefinition?.id || null;
 
         return this.buildCalendarViewDefinitionsToLoad()
-            .filter((definition) => definition?.id && definition.id !== primarySelectedDefinitionId)
+            .filter((definition) =>
+                definition?.id &&
+                definition.id !== primarySelectedDefinitionId &&
+                !this.isTaskCalendarDefinition(definition)
+            )
             .map((definition) => ({
                 ...definition,
                 optionalFieldsCsv: this.buildCalendarViewOptionalFields(definition).join(',')
@@ -1578,7 +1598,6 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
-        console.info('TeamCalendar quick delete window contextmenu', source);
         this.openQuickActionMenu(source, event);
     }
 
@@ -1592,7 +1611,6 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
-        console.info('TeamCalendar quick delete window mousedown', source);
         this.openQuickActionMenu(source, event);
     }
 
@@ -1602,7 +1620,6 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
-        console.info('TeamCalendar quick delete document contextmenu', source);
         this.openQuickActionMenu(source, event);
     }
 
@@ -1616,7 +1633,6 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
-        console.info('TeamCalendar quick delete document pointerdown', source);
         this.openQuickActionMenu(source, event);
     }
 
@@ -1674,11 +1690,29 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
         const recordName = this.activeEventMenu?.recordName || 'this event';
         const isTaskRecord = this.activeEventMenu?.recordObjectApiName === 'Task';
-        const confirmed = window.confirm(`Delete ${isTaskRecord ? 'task' : 'event'} "${recordName}"?`);
-        if (!confirmed) {
-            this.closeEventContextMenu();
+
+        this.pendingDeleteConfirm = {
+            recordId,
+            recordName,
+            isTaskRecord,
+            recordContextId: this.activeEventMenu?.recordContextId || null,
+            message: `Delete ${isTaskRecord ? 'task' : 'event'} "${recordName}"?`
+        };
+    }
+
+    handleCancelDelete() {
+        this.pendingDeleteConfirm = null;
+        this.closeEventContextMenu();
+    }
+
+    async handleConfirmDelete() {
+        const pending = this.pendingDeleteConfirm;
+        if (!pending || this.isDeletingEvent) {
             return;
         }
+
+        this.pendingDeleteConfirm = null;
+        const { recordId, recordName, isTaskRecord, recordContextId } = pending;
 
         this.isDeletingEvent = true;
 
@@ -1686,7 +1720,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             if (isTaskRecord) {
                 await deleteTask({
                     recordId,
-                    calendarViewId: this.activeEventMenu?.recordContextId || null
+                    calendarViewId: recordContextId
                 });
             } else {
                 await deleteCalendarEvent({ recordId });
@@ -1775,7 +1809,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     shouldOpenDrawerForRecord(objectApiName) {
-        return objectApiName === 'Calendar_Event__c' || objectApiName === 'Task';
+        return objectApiName === 'Calendar_Event__c';
     }
 
     buildMovedCalendarEventRequest(eventRecord, targetDateKey) {
@@ -2023,7 +2057,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 description: link.recordName || '',
                 recordId: link.recordId,
                 objectApiName: link.objectApiName,
-                className: 'event-context-menu__item event-context-menu__item--link'
+                className: 'event-context-menu__item'
             });
         });
 
@@ -2084,7 +2118,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
         return {
             title,
-            lines,
+            lines: lines.map((text, idx) => ({ key: `line-${idx}`, text })),
             style: this.buildHoverPreviewStyle(clientX, clientY)
         };
     }
@@ -2288,8 +2322,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             const visibleRange = getVisibleRange(this.currentDate, this.currentView);
             const result = await importEventsFromGoogle({
                 calendarId: this.selectedCalendarId,
-                start: visibleRange?.start || null,
-                endDate: visibleRange?.end || null
+                start: visibleRange?.startDate || null,
+                endDate: visibleRange?.endDate || null
             });
 
             this.googleImportStatus = result?.success ? 'Imported' : 'Error';
@@ -2480,14 +2514,24 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     isCalendarViewDefinition(definition) {
+        const UNSUPPORTED_UI_API_OBJECTS = new Set([
+            'ContentDocument', 'ContentVersion'
+        ]);
+        const objectType = definition?.sobjectType || definition?.listViewObjectApiName;
         return Boolean(
             definition &&
             definition.listViewFilterId &&
             definition.sobjectType &&
+            !UNSUPPORTED_UI_API_OBJECTS.has(objectType) &&
             definition.startField &&
             definition.listViewApiName &&
             (definition.listViewObjectApiName || definition.sobjectType)
         );
+    }
+
+    isTaskCalendarDefinition(definition) {
+        const objectType = definition?.sobjectType || definition?.listViewObjectApiName;
+        return objectType === 'Task';
     }
 
     buildCalendarViewDefinitionsToLoad() {
@@ -2539,6 +2583,33 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         });
 
         return Array.from(definitionsById.values());
+    }
+
+    async loadTaskCalendarEvents(taskDefinitions, visibleRange) {
+        if (!taskDefinitions.length) {
+            return [];
+        }
+
+        const requests = taskDefinitions.map((def) => ({
+            calendarViewId: def.id,
+            calendarViewName: def.name,
+            calendarViewColor: def.color || '#706e6b',
+            ownerId: def.ownerId || def.assignedUserId,
+            startField: def.startField,
+            displayField: def.displayField
+        }));
+
+        try {
+            const rows = await getTaskEventsForCalendarViews({
+                requestsJson: JSON.stringify(requests),
+                startDate: visibleRange.startDate,
+                endDate: visibleRange.endDate
+            });
+            return (rows || []).map((row) => this.normalizeEvent(row));
+        } catch (err) {
+            console.error('[TaskCalendar] Failed to load task events:', err);
+            return [];
+        }
     }
 
     loadCalendarViewEventsForDefinitions(definitions, visibleRange) {
@@ -2672,9 +2743,16 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             const calendarViewDefinitions = this.buildCalendarViewDefinitionsToLoad();
             this.pruneCalendarViewLoaderState(calendarViewDefinitions);
 
-            if (calendarViewDefinitions.length) {
+            const taskDefinitions = calendarViewDefinitions.filter(
+                (d) => this.isTaskCalendarDefinition(d)
+            );
+            const nonTaskDefinitions = calendarViewDefinitions.filter(
+                (d) => !this.isTaskCalendarDefinition(d)
+            );
+
+            if (nonTaskDefinitions.length) {
                 const calendarViewEvents = this.loadCalendarViewEventsForDefinitions(
-                    calendarViewDefinitions,
+                    nonTaskDefinitions,
                     visibleRange
                 );
 
@@ -2688,6 +2766,22 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 ]);
             } else {
                 nextEvents = this.dedupeNormalizedEvents(nextEvents);
+            }
+
+            if (taskDefinitions.length) {
+                const taskEvents = await this.loadTaskCalendarEvents(
+                    taskDefinitions,
+                    visibleRange
+                );
+
+                if (loadId !== this.loadSequence) {
+                    return;
+                }
+
+                nextEvents = this.dedupeNormalizedEvents([
+                    ...nextEvents,
+                    ...taskEvents
+                ]);
             }
 
             if (loadId !== this.loadSequence) {
@@ -3148,7 +3242,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             })
             .map((row) => ({
                 ...row,
-                colorStyle: `display:inline-block;width:0.75rem;height:0.75rem;border-radius:999px;background:${row.rawColor};`
+                colorStyle: `display:inline-block;width:0.75rem;height:0.75rem;border-radius:999px;background:${(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(row.rawColor || '') ? row.rawColor : '#1b96ff')};`
             }));
     }
 
@@ -3240,19 +3334,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     isWeekendDay(day) {
-        const rawDate =
-            day?.dateKey ||
-            day?.isoDate ||
-            day?.dateValue ||
-            (day?.date instanceof Date ? day.date.toISOString().slice(0, 10) : null);
-
-        if (!rawDate) {
-            return false;
-        }
-
-        const candidate = new Date(`${rawDate}T00:00:00`);
-        const dayIndex = candidate.getDay();
-        return dayIndex === 0 || dayIndex === 6;
+        return day?.isWeekend === true;
     }
 
     pruneUserCalendarState() {
@@ -3438,6 +3520,7 @@ function createDefaultLayoutPreference(overrides = {}) {
         showPrevNextButtons: true,
         showNewButton: true,
         showFiltersButton: true,
+        showSyncPanel: true,
         showSelectUsersBox: true,
         showFilterControls: true,
         showWeekends: true,
@@ -3455,7 +3538,7 @@ function normalizeLayoutPreference(rawValue) {
 
     return {
         defaultView:
-            source.defaultView === 'week' || source.defaultView === 'agenda'
+            ['month', 'week', 'agenda', 'teamLoad', 'conflicts'].includes(source.defaultView)
                 ? source.defaultView
                 : 'month',
         defaultCalendarViewId: source.defaultCalendarViewId || '',
@@ -3484,6 +3567,10 @@ function normalizeLayoutPreference(rawValue) {
             source.showFiltersButton === undefined
                 ? fallback.showFiltersButton
                 : source.showFiltersButton === true,
+        showSyncPanel:
+            source.showSyncPanel === undefined
+                ? fallback.showSyncPanel
+                : source.showSyncPanel === true,
         showSelectUsersBox:
             source.showSelectUsersBox === undefined
                 ? fallback.showSelectUsersBox

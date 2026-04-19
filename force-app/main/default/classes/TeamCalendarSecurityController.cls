@@ -136,12 +136,16 @@ public with sharing class TeamCalendarSecurityController {
             throw new AuraHandledException('A user id is required.');
         }
 
-        User targetUser = [
+        List<User> targetUsers = [
             SELECT Id, Name
             FROM User
             WHERE Id = :userId
             LIMIT 1
         ];
+        if (targetUsers.isEmpty()) {
+            throw new AuraHandledException('User not found.');
+        }
+        User targetUser = targetUsers[0];
 
         SecurityUserAccessDTO response = new SecurityUserAccessDTO();
         response.userId = targetUser.Id;

@@ -8,6 +8,7 @@ function createDefaultLayoutSettings() {
         showPrevNextButtons: true,
         showNewButton: true,
         showFiltersButton: true,
+        showSyncPanel: true,
         showSelectUsersBox: true,
         showFilterControls: true,
         showWeekends: true,
@@ -46,6 +47,10 @@ function normalizeLayoutSettings(rawValue) {
             source.showFiltersButton === undefined
                 ? fallback.showFiltersButton
                 : source.showFiltersButton === true,
+        showSyncPanel:
+            source.showSyncPanel === undefined
+                ? fallback.showSyncPanel
+                : source.showSyncPanel === true,
         showSelectUsersBox:
             source.showSelectUsersBox === undefined
                 ? fallback.showSelectUsersBox
@@ -138,9 +143,7 @@ export default class CalendarToolbar extends LightningElement {
     }
 
     get toolbarClass() {
-        let classes = this.layoutSettings.compactEventDensity
-            ? 'toolbar toolbar--compact'
-            : 'toolbar';
+        let classes = 'toolbar';
 
         if (!this.showSidePanel) {
             classes += ' toolbar--single-column';
@@ -302,11 +305,11 @@ export default class CalendarToolbar extends LightningElement {
     }
 
     get showGooglePanel() {
-        return true;
+        return this.layoutSettings.showSyncPanel;
     }
 
     get showSidePanel() {
-        return true;
+        return this.layoutSettings.showSyncPanel;
     }
 
     get resolvedGoogleImportActionLabel() {

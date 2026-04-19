@@ -236,6 +236,7 @@ public with sharing class GoogleCalendarConnectionService {
 
     @AuraEnabled
     public static OperationResult saveCalendarSelection(Id calendarId, String googleCalendarId) {
+        TeamCalendarUserPreferenceService.enforceSecurityAdmin();
         Team_Calendar__c calendarRow = getCalendarRow(calendarId);
         validateCalendarIsConnectable(calendarRow);
 
@@ -245,6 +246,9 @@ public with sharing class GoogleCalendarConnectionService {
         calendarRow.Google_Calendar_Id__c = String.isBlank(googleCalendarId)
             ? null
             : googleCalendarId.trim();
+        if (!Team_Calendar__c.SObjectType.getDescribe().isUpdateable()) {
+            throw new AuraHandledException('You do not have update access to Team Calendar records.');
+        }
         update calendarRow;
 
         result.success = true;
@@ -256,6 +260,7 @@ public with sharing class GoogleCalendarConnectionService {
 
     @AuraEnabled
     public static OperationResult saveImportCalendarSelections(Id calendarId, List<String> googleCalendarIds) {
+        TeamCalendarUserPreferenceService.enforceSecurityAdmin();
         Team_Calendar__c calendarRow = getCalendarRow(calendarId);
         validateCalendarIsConnectable(calendarRow);
 
@@ -264,6 +269,9 @@ public with sharing class GoogleCalendarConnectionService {
 
         calendarRow.Google_Sync_Enabled__c = true;
         calendarRow.Google_Import_Calendar_Ids__c = serializeGoogleCalendarIds(normalizedIds);
+        if (!Team_Calendar__c.SObjectType.getDescribe().isUpdateable()) {
+            throw new AuraHandledException('You do not have update access to Team Calendar records.');
+        }
         update calendarRow;
 
         result.success = true;
@@ -299,12 +307,16 @@ public with sharing class GoogleCalendarConnectionService {
             throw new AuraHandledException('Calendar Id is required.');
         }
 
-        return [
+        List<Team_Calendar__c> rows = [
             SELECT Id, Name, Google_Sync_Enabled__c, Google_Calendar_Id__c, Google_Import_Calendar_Ids__c
             FROM Team_Calendar__c
             WHERE Id = :calendarId
             LIMIT 1
         ];
+        if (rows.isEmpty()) {
+            throw new AuraHandledException('Team Calendar not found or may have been deleted.');
+        }
+        return rows[0];
     }
 
     private static void validateCalendarIsConnectable(Team_Calendar__c calendarRow) {

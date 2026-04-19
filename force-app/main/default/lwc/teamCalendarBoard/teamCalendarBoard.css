@@ -35,6 +35,21 @@
     z-index: 1;
 }
 
+.board-content--compact c-calendar-grid .events {
+    gap: 1px;
+}
+
+.board-content--compact c-calendar-grid .event-pill {
+    padding: 1px 4px;
+    font-size: 0.7rem;
+    line-height: 1.15;
+}
+
+.board-content--wrap c-calendar-grid .event-pill {
+    white-space: normal;
+    word-break: break-word;
+}
+
 .month-year-label {
     flex: 0 0 auto;
     margin-top: 0.05rem;

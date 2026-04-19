@@ -13,6 +13,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         'showPrevNextButtons',
         'showNewButton',
         'showFiltersButton',
+        'showSyncPanel',
         'showSelectUsersBox',
         'showFilterControls',
         'showWeekends',
@@ -22,10 +23,8 @@ public with sharing class TeamCalendarUserPreferenceService {
         'isActive'
     };
 
-    private static final Set<String> ADMIN_PROFILES = new Set<String>{
-        'System Administrator',
-        'teamMarine Admin'
-    };
+    @TestVisible
+    private static final String SECURITY_ADMIN_PERMISSION = 'Calendar_Security_Admin';
 
     public class UserPreferenceDTO {
         @AuraEnabled public Id userId;
@@ -39,6 +38,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         @AuraEnabled public Boolean showPrevNextButtons;
         @AuraEnabled public Boolean showNewButton;
         @AuraEnabled public Boolean showFiltersButton;
+        @AuraEnabled public Boolean showSyncPanel;
         @AuraEnabled public Boolean showSelectUsersBox;
         @AuraEnabled public Boolean showFilterControls;
 
@@ -62,6 +62,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         @AuraEnabled public Boolean showPrevNextButtons;
         @AuraEnabled public Boolean showNewButton;
         @AuraEnabled public Boolean showFiltersButton;
+        @AuraEnabled public Boolean showSyncPanel;
         @AuraEnabled public Boolean showSelectUsersBox;
         @AuraEnabled public Boolean showFilterControls;
 
@@ -75,25 +76,10 @@ public with sharing class TeamCalendarUserPreferenceService {
     }
 
     public static Boolean isSecurityAdmin(Id userId) {
-        if (Test.isRunningTest()) {
-            return true;
-        }
-
-        User runningUser = [
-            SELECT Id, Profile.Name
-            FROM User
-            WHERE Id = :userId
-            LIMIT 1
-        ];
-
-        return runningUser.Profile != null && ADMIN_PROFILES.contains(runningUser.Profile.Name);
+        return FeatureManagement.checkPermission(SECURITY_ADMIN_PERMISSION);
     }
 
     public static void enforceSecurityAdmin() {
-        if (Test.isRunningTest()) {
-            return;
-        }
-
         if (!isSecurityAdmin(UserInfo.getUserId())) {
             throw new AuraHandledException('You do not have permission to manage calendar security.');
         }
@@ -138,6 +124,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         workingRow.Show_Prev_Next_Buttons__c = normalized.showPrevNextButtons;
         workingRow.Show_New_Button__c = normalized.showNewButton;
         workingRow.Show_Filters_Button__c = normalized.showFiltersButton;
+        workingRow.Show_Sync_Panel__c = normalized.showSyncPanel;
         workingRow.Show_Select_Users_Box__c = normalized.showSelectUsersBox;
         workingRow.Show_Filter_Controls__c = normalized.showFilterControls;
 
@@ -206,6 +193,7 @@ public with sharing class TeamCalendarUserPreferenceService {
                    Show_Prev_Next_Buttons__c,
                    Show_New_Button__c,
                    Show_Filters_Button__c,
+                   Show_Sync_Panel__c,
                    Show_Select_Users_Box__c,
                    Show_Filter_Controls__c,
                    Show_Weekends__c,
@@ -258,6 +246,7 @@ public with sharing class TeamCalendarUserPreferenceService {
                    Show_Prev_Next_Buttons__c,
                    Show_New_Button__c,
                    Show_Filters_Button__c,
+                   Show_Sync_Panel__c,
                    Show_Select_Users_Box__c,
                    Show_Filter_Controls__c,
                    Show_Weekends__c,
@@ -297,6 +286,7 @@ public with sharing class TeamCalendarUserPreferenceService {
             Show_Prev_Next_Buttons__c = true,
             Show_New_Button__c = true,
             Show_Filters_Button__c = true,
+            Show_Sync_Panel__c = true,
             Show_Select_Users_Box__c = true,
             Show_Filter_Controls__c = true,
             Show_Weekends__c = true,
@@ -321,6 +311,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         dto.showPrevNextButtons = inputRow == null || inputRow.showPrevNextButtons == null ? true : inputRow.showPrevNextButtons;
         dto.showNewButton = inputRow == null || inputRow.showNewButton == null ? true : inputRow.showNewButton;
         dto.showFiltersButton = inputRow == null || inputRow.showFiltersButton == null ? true : inputRow.showFiltersButton;
+        dto.showSyncPanel = inputRow == null || inputRow.showSyncPanel == null ? true : inputRow.showSyncPanel;
         dto.showSelectUsersBox = inputRow == null || inputRow.showSelectUsersBox == null ? true : inputRow.showSelectUsersBox;
         dto.showFilterControls = inputRow == null || inputRow.showFilterControls == null ? true : inputRow.showFilterControls;
 
@@ -354,6 +345,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         dto.showPrevNextButtons = safeRow.Show_Prev_Next_Buttons__c == null ? true : safeRow.Show_Prev_Next_Buttons__c;
         dto.showNewButton = safeRow.Show_New_Button__c == null ? true : safeRow.Show_New_Button__c;
         dto.showFiltersButton = safeRow.Show_Filters_Button__c == null ? true : safeRow.Show_Filters_Button__c;
+        dto.showSyncPanel = safeRow.Show_Sync_Panel__c == null ? true : safeRow.Show_Sync_Panel__c;
         dto.showSelectUsersBox = safeRow.Show_Select_Users_Box__c == null ? true : safeRow.Show_Select_Users_Box__c;
         dto.showFilterControls = safeRow.Show_Filter_Controls__c == null ? true : safeRow.Show_Filter_Controls__c;
 
@@ -390,6 +382,9 @@ public with sharing class TeamCalendarUserPreferenceService {
             }
             when 'showFiltersButton' {
                 workingRow.Show_Filters_Button__c = fieldValue;
+            }
+            when 'showSyncPanel' {
+                workingRow.Show_Sync_Panel__c = fieldValue;
             }
             when 'showSelectUsersBox' {
                 workingRow.Show_Select_Users_Box__c = fieldValue;

@@ -1,4 +1,4 @@
-import { LightningElement, track } from 'lwc';
+import { LightningElement } from 'lwc';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 
 import canCurrentUserManageSecurity from '@salesforce/apex/TeamCalendarSecurityController.canCurrentUserManageSecurity';
@@ -34,7 +34,8 @@ const TOOLBAR_LAYOUT_FIELDS = [
     'showTodayButton',
     'showPrevNextButtons',
     'showNewButton',
-    'showFiltersButton'
+    'showFiltersButton',
+    'showSyncPanel'
 ];
 
 const BOARD_LAYOUT_FIELDS = [
@@ -73,6 +74,7 @@ function createDefaultLayoutDraft(defaultAllowedSelectedUserIds = []) {
         showPrevNextButtons: true,
         showNewButton: true,
         showFiltersButton: true,
+        showSyncPanel: true,
         showSelectUsersBox: true,
         showFilterControls: true,
         showWeekends: true,
@@ -123,6 +125,10 @@ function normalizeLayoutDraft(rawValue, defaultAllowedSelectedUserIds = []) {
             source.showFiltersButton === undefined
                 ? fallback.showFiltersButton
                 : source.showFiltersButton === true,
+        showSyncPanel:
+            source.showSyncPanel === undefined
+                ? fallback.showSyncPanel
+                : source.showSyncPanel === true,
         showSelectUsersBox:
             source.showSelectUsersBox === undefined
                 ? fallback.showSelectUsersBox
@@ -188,29 +194,29 @@ function normalizeAccessRow(row) {
 }
 
 export default class CalendarSecurityManager extends LightningElement {
-    @track users = [];
-    @track calendarViews = [];
-    @track allAccessRows = [];
+    users = [];
+    calendarViews = [];
+    allAccessRows = [];
 
-    @track selectedUserId;
-    @track selectedUserName = '';
+    selectedUserId;
+    selectedUserName = '';
 
-    @track userSearch = '';
-    @track calendarSearch = '';
-    @track ownerFilter = '';
-    @track approvedSelectedUsersSearch = '';
-    @track showOnlySelectedOwnerViews = false;
-    @track showOnlyActiveAccess = false;
-    @track showOnlyGrantedAccess = false;
+    userSearch = '';
+    calendarSearch = '';
+    ownerFilter = '';
+    approvedSelectedUsersSearch = '';
+    showOnlySelectedOwnerViews = false;
+    showOnlyActiveAccess = false;
+    showOnlyGrantedAccess = false;
 
-    @track isOpen = false;
-    @track isBusy = false;
-    @track isSaving = false;
-    @track isApprovedSelectedUsersOpen = false;
-    @track applyingAllUsersFieldName = '';
+    isOpen = false;
+    isBusy = false;
+    isSaving = false;
+    isApprovedSelectedUsersOpen = false;
+    applyingAllUsersFieldName = '';
 
-    @track activeTab = ACCESS_TAB;
-    @track layoutDraft = createDefaultLayoutDraft();
+    activeTab = ACCESS_TAB;
+    layoutDraft = createDefaultLayoutDraft();
 
     canManage = false;
     layoutDraftsByUser = {};
@@ -1024,7 +1030,8 @@ export default class CalendarSecurityManager extends LightningElement {
                 showTodayButton: true,
                 showPrevNextButtons: true,
                 showNewButton: true,
-                showFiltersButton: true
+                showFiltersButton: true,
+                showSyncPanel: true
             };
         }
 
@@ -1035,7 +1042,8 @@ export default class CalendarSecurityManager extends LightningElement {
                 showTodayButton: true,
                 showPrevNextButtons: true,
                 showNewButton: false,
-                showFiltersButton: false
+                showFiltersButton: false,
+                showSyncPanel: false
             };
         }
 
@@ -1291,19 +1299,23 @@ export default class CalendarSecurityManager extends LightningElement {
                 return;
             }
 
-            const payload = this.allAccessRows.map((row) => ({
-                calendarViewId: row.id,
-                calendarViewName: row.name,
-                calendarViewOwnerId: row.ownerId,
-                canView: row.canView,
-                canCreate: row.canCreate,
-                canEdit: row.canEdit,
-                canDelete: row.canDelete,
-                canAssignUsers: row.canAssignUsers,
-                canManageSecurity: row.canManageSecurity,
-                isActive: row.isActive,
-                notes: row.notes
-            }));
+            const payload = this.allAccessRows.map((row) => {
+                const normalizedRow = normalizeAccessRow(row);
+
+                return {
+                    calendarViewId: normalizedRow.id,
+                    calendarViewName: normalizedRow.name,
+                    calendarViewOwnerId: normalizedRow.ownerId,
+                    canView: normalizedRow.canView,
+                    canCreate: normalizedRow.canCreate,
+                    canEdit: normalizedRow.canEdit,
+                    canDelete: normalizedRow.canDelete,
+                    canAssignUsers: normalizedRow.canAssignUsers,
+                    canManageSecurity: normalizedRow.canManageSecurity,
+                    isActive: normalizedRow.isActive,
+                    notes: normalizedRow.notes
+                };
+            });
 
             await saveUserCalendarAccess({
                 userId: this.selectedUserId,

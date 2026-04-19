@@ -50,6 +50,7 @@ export function createPoller({ fn, intervalMs = 5000, maxAttempts = 12 }) {
     }
 
   function start() {
+    stop();
     stopped = false;
     attempts = 0;
     // first tick

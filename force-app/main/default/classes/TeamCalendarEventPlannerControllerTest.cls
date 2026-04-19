@@ -51,7 +51,13 @@ private class TeamCalendarEventPlannerControllerTest {
 
     @IsTest
     static void getPlanningContext_rejectsDisallowedAssignedUser() {
+        User allowedUser = createUser('planner.only.allowed');
         User disallowedUser = createUser('planner.disallowed');
+
+        insert new Calendar_User_Preference__c(
+            Target_User__c = UserInfo.getUserId(),
+            Allowed_Selected_User_Ids__c = JSON.serialize(new List<String>{ String.valueOf(allowedUser.Id) })
+        );
 
         Test.startTest();
         TeamCalendarEventPlannerController.PlanningContextDTO context =

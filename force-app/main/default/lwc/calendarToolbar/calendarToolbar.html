@@ -8,48 +8,61 @@
 <template>
     <div class={toolbarClass}>
         <div class="toolbar__main">
+            <div class="toolbar__header">
+                <h2 class="toolbar__range-label">{rangeLabel}</h2>
+                <div class="toolbar__event-count">{eventCount} event(s)</div>
+            </div>
+
             <div
                 class="toolbar__actions slds-grid slds-grid_vertical-align-end slds-wrap slds-gutters_x-small"
             >
+                <template if:true={showPrevNextButtons}>
+                    <div class="slds-col slds-grow-none">
+                        <lightning-button-icon
+                            icon-name="utility:chevronleft"
+                            alternative-text="Previous"
+                            onclick={emitPrev}
+                        ></lightning-button-icon>
+                    </div>
+                    <div class="slds-col slds-grow-none">
+                        <lightning-button-icon
+                            icon-name="utility:chevronright"
+                            alternative-text="Next"
+                            onclick={emitNext}
+                        ></lightning-button-icon>
+                    </div>
+                </template>
+
                 <template if:true={showTodayButton}>
                     <div class="slds-col slds-grow-none">
-                        <button class="toolbar__btn" onclick={emitToday} title="Today">Today</button>
+                        <lightning-button label="Today" onclick={emitToday}></lightning-button>
                     </div>
                 </template>
 
                 <template if:true={showRefreshButton}>
                     <div class="slds-col slds-grow-none">
-                        <button class="toolbar__btn" onclick={emitRefresh} title="Refresh">Refresh</button>
-                    </div>
-                </template>
-
-                <template if:true={showPrevNextButtons}>
-                    <div class="slds-col slds-grow-none">
-                        <button class="toolbar__btn" onclick={emitPrev} title="Previous">Prev</button>
-                    </div>
-                    <div class="slds-col slds-grow-none">
-                        <button class="toolbar__btn" onclick={emitNext} title="Next">Next</button>
+                        <lightning-button-icon
+                            icon-name="utility:refresh"
+                            alternative-text="Refresh"
+                            onclick={emitRefresh}
+                        ></lightning-button-icon>
                     </div>
                 </template>
 
                 <template if:true={showNewButton}>
                     <div class="slds-col slds-grow-none">
-                        <button class="toolbar__btn toolbar__btn--primary" onclick={emitNew} title="New Event">
-                            New
-                        </button>
+                        <lightning-button label="New Event" variant="brand" onclick={emitNew}></lightning-button>
                     </div>
                 </template>
 
                 <template if:true={showFiltersButton}>
                     <div class="slds-col slds-grow-none toolbar__filter-anchor">
-                        <button
-                            class="toolbar__btn"
-                            type="button"
+                        <lightning-button-icon
+                            icon-name="utility:filterList"
+                            alternative-text="Filters"
                             onclick={toggleFilterMenu}
                             title="Show or hide layout sections"
-                        >
-                            Filters
-                        </button>
+                        ></lightning-button-icon>
 
                         <template if:true={isFilterMenuOpen}>
                             <div class="toolbar__filter-menu">
@@ -76,22 +89,17 @@
                                 </div>
 
                                 <div class="toolbar__filter-menu-footer">
-                                    <button
-                                        class="toolbar__btn toolbar__btn--subtle"
-                                        type="button"
+                                    <lightning-button
+                                        label="Reset"
                                         onclick={resetFilterLayout}
                                         title="Reset layout filters"
-                                    >
-                                        Reset
-                                    </button>
+                                    ></lightning-button>
 
-                                    <button
-                                        class="user-menu__done"
-                                        type="button"
+                                    <lightning-button
+                                        label="Done"
+                                        variant="brand"
                                         onclick={closeFilterMenu}
-                                    >
-                                        Done
-                                    </button>
+                                    ></lightning-button>
                                 </div>
                             </div>
                         </template>
@@ -103,14 +111,15 @@
                 </div>
 
                 <template if:true={showFilterControls}>
-                    <div class="slds-col slds-grow-none" style="min-width: 9rem; max-width: 10rem;">
-                        <lightning-combobox
+                    <div class="slds-col slds-grow-none">
+                        <lightning-radio-group
+                            type="button"
+                            name="viewMode"
                             label="View"
-                            value={currentView}
                             options={normalizedViewOptions}
+                            value={currentView}
                             onchange={handleViewChange}
-                        >
-                        </lightning-combobox>
+                        ></lightning-radio-group>
                     </div>
 
                     <div class="slds-col slds-grow-none" style="min-width: 14rem; max-width: 16rem;">
@@ -134,14 +143,11 @@
                     </div>
 
                     <div class="slds-col slds-grow-none toolbar__pdf-action">
-                        <button
-                            class="toolbar__btn toolbar__btn--subtle"
-                            type="button"
+                        <lightning-button
+                            label="Generate PDF"
                             onclick={emitGeneratePdf}
                             title="Generate PDF"
-                        >
-                            Generate PDF
-                        </button>
+                        ></lightning-button>
                     </div>
                 </template>
             </div>
@@ -155,14 +161,11 @@
                         </div>
 
                         <div class="user-panel__menu-anchor">
-                            <button
-                                class="user-panel__trigger"
-                                type="button"
+                            <lightning-button
+                                label={userTriggerLabel}
                                 onclick={toggleUserMenu}
                                 title={userTriggerLabel}
-                            >
-                                {userTriggerLabel}
-                            </button>
+                            ></lightning-button>
 
                             <template if:true={isUserMenuOpen}>
                                 <div class="user-menu">
@@ -303,25 +306,19 @@
                 <section class="toolbar__google-panel">
                     <div class="toolbar__google-title">Sync</div>
 
-                    <button
-                        class="toolbar__sync"
-                        type="button"
+                    <lightning-button
+                        label={resolvedGoogleImportActionLabel}
                         onclick={emitGoogleImportAction}
                         disabled={googleImportActionDisabled}
                         title={resolvedGoogleImportActionLabel}
-                    >
-                        {resolvedGoogleImportActionLabel}
-                    </button>
+                    ></lightning-button>
 
-                    <button
-                        class="toolbar__sync toolbar__sync--secondary"
-                        type="button"
+                    <lightning-button
+                        label={resolvedGoogleExportActionLabel}
                         onclick={emitGoogleExportAction}
                         disabled={googleExportActionDisabled}
                         title={resolvedGoogleExportActionLabel}
-                    >
-                        {resolvedGoogleExportActionLabel}
-                    </button>
+                    ></lightning-button>
                 </section>
             </aside>
         </template>

@@ -12,20 +12,66 @@ export default class CalendarGrid extends LightningElement {
     hoveredRecordId = null;
     draggedRecordId = null;
 
+    constructor() {
+        super();
+        this._boundHoverOver = this.handleNativeHoverOver.bind(this);
+        this._boundHoverOut = this.handleNativeHoverOut.bind(this);
+        this._boundMouseDown = this.handleNativeQuickActionMouseDown.bind(this);
+        this._boundContextMenu = this.handleNativeQuickActionContextMenu.bind(this);
+    }
+
     renderedCallback() {
         if (this.hasNativeQuickActionListeners) {
             return;
         }
 
-        this.template.addEventListener('mouseover', this.handleNativeHoverOver.bind(this));
-        this.template.addEventListener('mouseout', this.handleNativeHoverOut.bind(this));
-        this.template.addEventListener('mousedown', this.handleNativeQuickActionMouseDown.bind(this));
-        this.template.addEventListener('contextmenu', this.handleNativeQuickActionContextMenu.bind(this));
+        this.template.addEventListener('mouseover', this._boundHoverOver);
+        this.template.addEventListener('mouseout', this._boundHoverOut);
+        this.template.addEventListener('mousedown', this._boundMouseDown);
+        this.template.addEventListener('contextmenu', this._boundContextMenu);
         this.hasNativeQuickActionListeners = true;
+    }
+
+    disconnectedCallback() {
+        this.template.removeEventListener('mouseover', this._boundHoverOver);
+        this.template.removeEventListener('mouseout', this._boundHoverOut);
+        this.template.removeEventListener('mousedown', this._boundMouseDown);
+        this.template.removeEventListener('contextmenu', this._boundContextMenu);
+        this.hasNativeQuickActionListeners = false;
     }
 
     get hasWeeks() {
         return Array.isArray(this.weeks) && this.weeks.length > 0;
+    }
+
+    get columnCount() {
+        return this.showWeekends ? 7 : 5;
+    }
+
+    get weekdayHeaders() {
+        const all = [
+            { key: 'sun', label: 'Sun', isWeekend: true },
+            { key: 'mon', label: 'Mon', isWeekend: false },
+            { key: 'tue', label: 'Tue', isWeekend: false },
+            { key: 'wed', label: 'Wed', isWeekend: false },
+            { key: 'thu', label: 'Thu', isWeekend: false },
+            { key: 'fri', label: 'Fri', isWeekend: false },
+            { key: 'sat', label: 'Sat', isWeekend: true }
+        ];
+        return this.showWeekends ? all : all.filter(d => !d.isWeekend);
+    }
+
+    get filteredWeeks() {
+        if (!this.hasWeeks) return [];
+        if (this.showWeekends) return this.weeks;
+        return this.weeks.map(week => ({
+            ...week,
+            days: week.days.filter(day => !day.isWeekend)
+        }));
+    }
+
+    get columnsStyle() {
+        return `grid-template-columns: repeat(${this.columnCount}, minmax(0, 1fr));`;
     }
 
     get rowCount() {
@@ -45,10 +91,10 @@ export default class CalendarGrid extends LightningElement {
 
     get gridStyle() {
         const rowDefinition = this.autoExpandDayHeight
-            ? 'repeat(' + this.rowCount + ', minmax(0, 1fr))'
+            ? 'repeat(' + this.rowCount + ', minmax(120px, auto))'
             : 'repeat(' + this.rowCount + ', minmax(0, 1fr))';
 
-        return `grid-template-rows: ${rowDefinition};`;
+        return `grid-template-columns: repeat(${this.columnCount}, minmax(0, 1fr)); grid-template-rows: ${rowDefinition};`;
     }
 
     handleDayClick(event) {
@@ -60,6 +106,13 @@ export default class CalendarGrid extends LightningElement {
                 }
             })
         );
+    }
+
+    handleDayKeyDown(event) {
+        if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            this.handleDayClick(event);
+        }
     }
 
     handleDayAdd(event) {

@@ -1,0 +1,401 @@
+========================================================================
+  TEAM CALENDAR — CODE AUDIT V2
+  Date: April 18, 2026
+  Scope: All LWC JS/HTML/CSS + All Apex classes
+  Total Issues: 27 (1 Critical, 5 High, 12 Medium, 9 Low)
+========================================================================
+
+
+------------------------------------------------------------------------
+  CRITICAL (1)
+------------------------------------------------------------------------
+
+#1  [FIXED] CSS Injection via Unsanitized Calendar Colors in Inline Styles
+    Files: calendarUtils.js (L242, L336-340), calendarLegend.js (L14),
+           teamCalendarBoard.js (L3230)
+    ────
+    Calendar color values from server data are interpolated directly
+    into inline style attributes without validation:
+
+      colorBarStyle: `background:${calendarColor};`          (calendarUtils L242)
+      `background:${color}`                                  (calendarUtils L340)
+      `background:${row.rawColor};`                          (teamCalendarBoard L3230)
+      `background:${color};`                                 (calendarLegend L14)
+
+    A malicious color value like "#000;} .slds-modal{display:none" would
+    break out of the style context. readableTextColor() already has a
+    hex validation regex (/^#([0-9a-f]{3}|[0-9a-f]{6})$/i) that should
+    be used as a gate before any color is interpolated into CSS.
+
+    Fix: Add a sanitizeColor() function that validates against the hex
+    regex and falls back to a default (#1b96ff) for non-matching values.
+    Apply it in buildEventStyle(), colorBarStyle, and all inline usages.
+
+
+------------------------------------------------------------------------
+  HIGH (5)
+------------------------------------------------------------------------
+
+#2  [FIXED] 4 Unhandled QueryException — Direct SOQL-to-SObject Assignment
+    Files: GoogleCalendarConnectionService.cls (L304-309),
+           GoogleCalendarSyncService.cls (L68, L124, L218),
+           TeamCalendarSecurityController.cls (L139-143)
+    ────
+    These methods assign a SOQL result directly to a single SObject
+    variable. If the record was deleted between page load and action,
+    the query returns 0 rows and throws System.QueryException (not
+    AuraHandledException), crashing the LWC with a generic error.
+
+    Sites:
+    a) GoogleCalendarConnectionService.getCalendarRow():
+       return [SELECT ... FROM Team_Calendar__c WHERE Id = :calendarId LIMIT 1];
+
+    b) GoogleCalendarSyncService.pushEvent():
+       Calendar_Event__c evt = [SELECT ... WHERE Id = :calendarEventId LIMIT 1];
+
+    c) GoogleCalendarSyncService.importEventsFromGoogle():
+       Team_Calendar__c calendarRow = [SELECT ... WHERE Id = :calendarId LIMIT 1];
+
+    d) GoogleCalendarSyncService.pushEventsForCalendar():
+       Team_Calendar__c calendarRow = [SELECT ... WHERE Id = :calendarId LIMIT 1];
+
+    e) TeamCalendarSecurityController.getUserCalendarAccess():
+       User targetUser = [SELECT ... WHERE Id = :userId LIMIT 1];
+
+    Fix: Convert each to the safe list pattern already used in
+    RecordMutationService:
+      List<SObject> rows = [SELECT ... LIMIT 1];
+      if (rows.isEmpty()) {
+          throw new AuraHandledException('Record not found.');
+      }
+      SObject record = rows[0];
+
+#3  [FIXED] loadAllowedAssignedUser Treats null (No Restrictions) as "Current User Only"
+    File: TeamCalendarEventPlannerController.cls (L204-220)
+    ────
+    When getAllowedSelectedUserIdsForCurrentUser() returns null, it means
+    "no restrictions — all users are allowed." But this method converts
+    null into an empty set, adds only the current user, then blocks any
+    other assignedUserId:
+
+      Set<Id> allowedUserIds = ...getAllowedSelectedUserIdsForCurrentUser();
+      if (allowedUserIds == null) {
+          allowedUserIds = new Set<Id>();    // wrong: null means "allow all"
+      }
+      allowedUserIds.add(UserInfo.getUserId());
+      if (!allowedUserIds.contains(assignedUserId)) {
+          return null;  // blocks availability check
+      }
+
+    This means any user without explicitly configured allowed-user IDs
+    can only check availability for themselves, even though the intent
+    is "allow all."
+
+    Fix:
+      if (allowedUserIds != null
+          && !allowedUserIds.contains(assignedUserId)
+          && assignedUserId != UserInfo.getUserId()) {
+          return null;
+      }
+
+#4  [FIXED] Event Listener Memory Leak — calendarGrid & calendarAgenda
+    Files: calendarGrid.js (L20-23), calendarAgenda.js (L17-20)
+    ────
+    Both components add 4 event listeners each in connectedCallback()
+    using .bind(this) but have NO disconnectedCallback() to remove them.
+    Each time the view switches (e.g., month -> week -> agenda -> month),
+    the component is destroyed and re-created, leaking 4 listeners per
+    cycle. After many view switches, dozens of orphaned handlers fire on
+    mouseover/mouseout/mousedown/contextmenu, causing performance
+    degradation and potential ghost event dispatches.
+
+    calendarGrid connectedCallback:
+      this.template.addEventListener('mouseover', this.handleNativeHoverOver.bind(this));
+      this.template.addEventListener('mouseout', this.handleNativeHoverOut.bind(this));
+      this.template.addEventListener('mousedown', this.handleNativeQuickActionMouseDown.bind(this));
+      this.template.addEventListener('contextmenu', this.handleNativeQuickActionContextMenu.bind(this));
+
+    calendarAgenda connectedCallback: (same 4 listeners)
+
+    Fix: Store bound references in constructor, add disconnectedCallback:
+      constructor() {
+          super();
+          this._boundHoverOver = this.handleNativeHoverOver.bind(this);
+          // ... etc
+      }
+      disconnectedCallback() {
+          this.template.removeEventListener('mouseover', this._boundHoverOver);
+          // ... etc
+      }
+
+#5  [FIXED] Hover Card key={line} Uses Raw String — Duplicate Text Corrupts DOM
+    File: teamCalendarBoard.html (L260-261)
+    ────
+    The hover card iterator uses key={line} where line is a plain string
+    from hoveredEventPreview.lines. If two lines have identical text
+    (e.g., two "All Day" or two blank lines), LWC gets duplicate keys,
+    causing incorrect DOM patching and rendering corruption.
+
+    Current: <template for:each={hoveredEventPreview.lines} for:item="line">
+               <div key={line} ...>
+
+    Fix: Change the data model so each line is an object with a unique
+    index: { id: index, text: line } and use key={line.id}, rendering
+    {line.text}.
+
+
+------------------------------------------------------------------------
+  MEDIUM (12)
+------------------------------------------------------------------------
+
+#6  [FIXED] Dynamic SOQL Uses String Concatenation Instead of Bind Variables
+    File: TeamCalendarBoardController.cls (L155-161)
+    ────
+    soql += ' AND Calendar__c = \'' + String.escapeSingleQuotes(calendarId) + '\'';
+    soql += ' AND Status__c = \'' + String.escapeSingleQuotes(statusFilter) + '\'';
+
+    While escapeSingleQuotes prevents injection, Salesforce best practice
+    is to use bind variables in dynamic SOQL, which eliminates any
+    injection risk entirely and is cleaner.
+
+    Fix: Declare local variables and use bind syntax:
+      Id resolvedCalendarId = (Id) calendarId;
+      soql += ' AND Calendar__c = :resolvedCalendarId';
+
+#7  [FIXED] pushEventsForCalendar SOQL Has No LIMIT — Governor Limit Risk
+    File: GoogleCalendarSyncService.cls (L237-252)
+    ────
+    soql += ' ORDER BY Start__c ASC';
+    List<Calendar_Event__c> rows = Database.query(soql);
+
+    If a calendar has >50,000 events, this query hits the SOQL row limit.
+
+    Fix: Add LIMIT 50000 or paginate.
+
+#8  [FIXED] loadExistingImportedEvents SOQL Has No LIMIT
+    File: GoogleCalendarSyncService.cls (L545-567)
+    ────
+    Same risk as #7. A calendar with extensive Google import history
+    could exceed 50,000 matched rows.
+
+    Fix: Add LIMIT 50000.
+
+#9  [FIXED] syncSingleEvent Missing HTTP Request Timeout
+    File: GoogleCalendarSyncService.cls (L424-445)
+    ────
+    HttpRequest is constructed without setTimeout(). All other callout
+    methods (getConnectionState, listAvailableCalendars, loadGoogleEvents)
+    set setTimeout(20000). This method defaults to 10s, which may cause
+    sporadic sync failures on slow Google API responses.
+
+    Fix: Add req.setTimeout(20000); for consistency.
+
+#10 [FIXED] saveCalendarSelection / saveImportCalendarSelections Skip CRUD Check
+    File: GoogleCalendarConnectionService.cls (L249, L269)
+    ────
+    Both methods call `update calendarRow;` on Team_Calendar__c without
+    checking isUpdateable(). They are admin-gated via enforceSecurityAdmin()
+    but do not follow the CRUD enforcement pattern from RecordMutationService.
+
+    Fix: Add CRUD check before update:
+      if (!Team_Calendar__c.SObjectType.getDescribe().isUpdateable()) {
+          throw new AuraHandledException('Insufficient update access.');
+      }
+
+#11 [FIXED] loadSelectedUserLabels Crashes on Malformed URL Parameter
+    File: TeamCalendarPdfController.cls (L149-157)
+    ────
+    scopedIds.add((Id) rawId); — casts URL parameter strings to Id
+    without try-catch. A tampered URL crashes the entire VF page with
+    an unhandled StringException.
+
+    Fix: Wrap in try-catch:
+      try { scopedIds.add((Id) rawId); } catch (Exception ex) { /* skip */ }
+
+#12 [FIXED] isSecurityAdmin() Always Returns true in Tests — Security Never Tested
+    File: TeamCalendarUserPreferenceService.cls (L93-97)
+    ────
+    if (Test.isRunningTest()) { return true; }
+
+    Every test runs as security admin, meaning enforceSecurityAdmin()
+    never throws. The permission-gating layer has zero test coverage
+    for the rejection path.
+
+    Fix: Remove the Test.isRunningTest() shortcut. Assign the
+    Calendar_Security_Admin custom permission via a Permission Set
+    in @TestSetup, and test the rejection path with users who lack it.
+
+#13 [FIXED] console.info Leaking Debug Data in Production (4 Instances)
+    File: teamCalendarBoard.js (L1600, L1614, L1624, L1638)
+    ────
+    console.info('TeamCalendar quick delete window contextmenu', source);
+    console.info('TeamCalendar quick delete window mousedown', source);
+    console.info('TeamCalendar quick delete document contextmenu', source);
+    console.info('TeamCalendar quick delete document pointerdown', source);
+
+    These log event source data to the browser console in production.
+    Users with dev tools open can see internal event handling details.
+
+    Fix: Remove all 4 console.info calls, or guard behind a debug flag.
+
+#14 [FIXED] window.confirm Not Recommended in Lightning Experience (2 Instances)
+    Files: teamCalendarBoard.js (L1696), calendarEventDrawer.js (L53)
+    ────
+    window.confirm(`Delete ... "${recordName}"?`);
+    window.confirm('Delete this ' + recordTypeLabel + '?');
+
+    window.confirm is not part of the Lightning Design System and may
+    behave inconsistently in some Lightning contexts. SLDS recommends
+    using a modal confirmation dialog instead.
+
+    Fix: Replace with a custom LWC confirmation modal using SLDS
+    modal markup.
+
+#15 [FIXED] Security Manager Modal Missing Accessibility Attributes
+    File: calendarSecurityManager.html (L21)
+    ────
+    <section class="slds-modal slds-fade-in-open security-modal">
+
+    Missing role="dialog", tabindex="-1", aria-modal="true". Every
+    other modal in the codebase correctly uses these attributes.
+
+    Fix: <section role="dialog" tabindex="-1" aria-modal="true"
+         class="slds-modal slds-fade-in-open security-modal">
+
+#16 [FIXED] All 5 Dialog Modals Missing aria-labelledby
+    Files: calendarCreateModal.html (L9), calendarEventDrawer.html (L9),
+           teamCalendarBoard.html (L269, L300, L384)
+    ────
+    SLDS modal accessibility pattern requires aria-labelledby on the
+    <section role="dialog"> pointing to the heading <h2> via an id.
+    Screen readers cannot announce the modal purpose without it.
+
+    Fix: Add id="modal-heading-XX" to each <h2> and
+    aria-labelledby="modal-heading-XX" to each <section>.
+
+#17 [FIXED] Calendar Grid Day Cells Not Keyboard Accessible
+    File: calendarGrid.html (L22-31)
+    ────
+    Day cells are <div> elements with onclick={handleDayClick} but no
+    tabindex, role, or onkeydown handler. Keyboard-only users cannot
+    navigate to or activate day cells.
+
+    Fix: Add role="button" tabindex="0" and an onkeydown handler that
+    triggers handleDayClick on Enter/Space.
+
+
+------------------------------------------------------------------------
+  LOW (9)
+------------------------------------------------------------------------
+
+#18 [FIXED] toolbar--compact CSS Class Applied by JS but Never Defined
+    Files: calendarToolbar.js (L147), calendarToolbar.css
+    ────
+    toolbarClass getter returns 'toolbar toolbar--compact' when
+    compactEventDensity is true, but .toolbar--compact does not exist
+    in calendarToolbar.css. The class is silently ignored.
+
+    Fix: Add .toolbar--compact rules to CSS, or remove from JS getter.
+
+#19 [FIXED] event-context-menu__item--link CSS Class Applied but Never Defined
+    Files: teamCalendarBoard.js (L2045), teamCalendarBoard.css
+    ────
+    Context menu items get class "event-context-menu__item--link" but
+    no CSS definition exists. Link-style items look identical to default.
+
+    Fix: Add .event-context-menu__item--link to CSS, or remove from JS.
+
+#20 [FIXED] Dead handleSubmit Method in calendarEventDrawer.js
+    File: calendarEventDrawer.js (L592)
+    ────
+    handleSubmit(event) is defined but never referenced in the HTML
+    template (no onsubmit binding, no lightning-record-edit-form).
+    Dead code.
+
+    Fix: Remove the handleSubmit method.
+
+#21 [FIXED] Unnecessary @track Decorators in calendarSecurityManager (19 Instances)
+    File: calendarSecurityManager.js (L197-219)
+    ────
+    Since LWC v2, @track is implicit for all reactive properties.
+    All 19 @track decorators are unnecessary and add noise.
+
+    Fix: Remove @track and just use plain property declarations.
+
+#22 [FIXED] Security Manager Footer Buttons Missing type="button"
+    File: calendarSecurityManager.html (L968-976)
+    ────
+    Cancel and Save <button> elements omit type="button". Without it,
+    buttons default to type="submit", which can cause unexpected form
+    submission in certain contexts.
+
+    Fix: Add type="button" to both buttons.
+
+#23 [FIXED] calendarAgenda.css — ALL 12 CSS Classes Are Dead Code
+    File: calendarAgenda.css (entire file)
+    ────
+    Every class (.agenda-list, .agenda-group, .agenda-group-header,
+    .agenda-date, .agenda-add-btn, .agenda-items, .agenda-row,
+    .agenda-color, .agenda-time, .agenda-title, .agenda-meta,
+    .agenda-empty) is unused. The HTML uses SLDS utility classes.
+
+    Fix: Delete the file contents or remove the file.
+
+#24 [FIXED] calendarLegend.css — ALL 3 CSS Classes Are Dead Code
+    File: calendarLegend.css (entire file)
+    ────
+    .legend, .legend-item, .legend-swatch are never referenced in
+    calendarLegend.html. The HTML uses SLDS pill/grid classes.
+
+    Fix: Delete the file contents or remove the file.
+
+#25 [FIXED] calendarEventDrawer.css — 4 Unused CSS Classes
+    File: calendarEventDrawer.css (L5-34)
+    ────
+    .drawer-header, .drawer-grid, .drawer-section, .drawer-footer are
+    defined but never used in the HTML. Keep .drawer and .drawer-label.
+
+    Fix: Remove the 4 unused class definitions.
+
+#26 [FIXED] calendarGrid.css — .more-events Class Is Dead Code
+    File: calendarGrid.css (L223-224)
+    ────
+    .more-events { display: none; } is defined but never referenced
+    in calendarGrid.html. Remnant from earlier overflow pattern.
+
+    Fix: Remove the .more-events rule.
+
+#27 [FIXED] calendarToolbar.css — 14+ Unused CSS Classes
+    File: calendarToolbar.css (various lines)
+    ────
+    These classes are defined in CSS but never used in HTML:
+    .toolbar__btn, .toolbar__btn--subtle, .toolbar__btn--primary,
+    .toolbar__sync, .toolbar__sync--secondary, .toolbar__sync[disabled],
+    .toolbar__disconnect, .toolbar__badge, .toolbar__badge--success,
+    .toolbar__badge--warning, .toolbar__badge--error,
+    .user-panel__trigger, and others.
+
+    Fix: Remove unused class definitions. Keep .user-menu__done and
+    .user-chip__* which are actually used.
+
+
+========================================================================
+  SUMMARY
+========================================================================
+
+  Critical:  1  (#1)
+  High:      5  (#2-#6)
+  Medium:   12  (#6-#17)
+  Low:       9  (#18-#27)
+  Total:    27
+
+  Key Themes:
+  - Security: CSS injection (#1), missing CRUD (#10), SOQL patterns (#6)
+  - Reliability: QueryException crashes (#2), memory leaks (#4), missing
+    timeouts (#9), no LIMIT (#7, #8)
+  - Logic: Null-means-all treated as empty (#3)
+  - Accessibility: Missing ARIA/dialog attrs (#15, #16, #17), keyboard (#17)
+  - Dead Code: ~50+ unused CSS classes across 5 files (#23-#27),
+    dead JS method (#20)
+
+========================================================================

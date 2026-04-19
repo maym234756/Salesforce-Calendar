@@ -166,6 +166,9 @@ public with sharing class TeamCalendarBoardController {
         Map<String, Set<String>> perUserCalendarSelections =
             parseUserCalendarSelectionJson(userCalendarSelectionJson);
 
+        Id resolvedCalendarId = String.isNotBlank(calendarId) ? (Id) calendarId : null;
+        String resolvedStatusFilter = String.isNotBlank(statusFilter) ? statusFilter : null;
+
         String soql =
             'SELECT Id, Name, OwnerId, Owner.Name, Calendar__c, Calendar__r.Name, ' +
             'Calendar__r.Color__c, Calendar__r.OwnerId, Start__c, End__c, All_Day__c, Status__c, Notes__c, Private_To_Owner__c ' +
@@ -173,15 +176,15 @@ public with sharing class TeamCalendarBoardController {
             'WHERE Start__c < :rangeEndExclusive ' +
             'AND (End__c = null OR End__c >= :rangeStart)';
 
-        if (String.isNotBlank(calendarId)) {
-            soql += ' AND Calendar__c = \'' + String.escapeSingleQuotes(calendarId) + '\'';
+        if (resolvedCalendarId != null) {
+            soql += ' AND Calendar__c = :resolvedCalendarId';
         }
 
-        if (String.isNotBlank(statusFilter)) {
-            soql += ' AND Status__c = \'' + String.escapeSingleQuotes(statusFilter) + '\'';
+        if (resolvedStatusFilter != null) {
+            soql += ' AND Status__c = :resolvedStatusFilter';
         }
 
-        soql += ' ORDER BY Start__c, Name';
+        soql += ' ORDER BY Start__c, Name LIMIT 10000';
 
         List<CalendarEventDTO> rows = new List<CalendarEventDTO>();
 
@@ -806,5 +809,119 @@ public with sharing class TeamCalendarBoardController {
         }
 
         return results;
+    }
+
+    // ── Task-based CalendarView fallback (UI API does not support Task) ──
+
+    public class TaskCalendarRequestDTO {
+        @AuraEnabled public Id calendarViewId;
+        @AuraEnabled public String calendarViewName;
+        @AuraEnabled public String calendarViewColor;
+        @AuraEnabled public Id ownerId;
+        @AuraEnabled public String startField;
+        @AuraEnabled public String displayField;
+    }
+
+    @AuraEnabled
+    public static List<CalendarEventDTO> getTaskEventsForCalendarViews(
+        String requestsJson,
+        String startDate,
+        String endDate
+    ) {
+        if (String.isBlank(requestsJson) || String.isBlank(startDate) || String.isBlank(endDate)) {
+            return new List<CalendarEventDTO>();
+        }
+
+        List<TaskCalendarRequestDTO> requests;
+        try {
+            requests = (List<TaskCalendarRequestDTO>) JSON.deserialize(
+                requestsJson, List<TaskCalendarRequestDTO>.class
+            );
+        } catch (Exception ex) {
+            throw new AuraHandledException('Invalid task calendar request payload.');
+        }
+
+        if (requests == null || requests.isEmpty()) {
+            return new List<CalendarEventDTO>();
+        }
+
+        Date startValue = Date.valueOf(startDate);
+        Date endValue = Date.valueOf(endDate);
+        Datetime rangeStart = Datetime.newInstance(startValue, Time.newInstance(0, 0, 0, 0));
+        Datetime rangeEnd = Datetime.newInstance(endValue.addDays(1), Time.newInstance(0, 0, 0, 0));
+
+        Set<Id> ownerIds = new Set<Id>();
+        Map<Id, TaskCalendarRequestDTO> requestByOwner = new Map<Id, TaskCalendarRequestDTO>();
+        for (TaskCalendarRequestDTO req : requests) {
+            if (req.ownerId != null) {
+                ownerIds.add(req.ownerId);
+                requestByOwner.put(req.ownerId, req);
+            }
+        }
+
+        if (ownerIds.isEmpty()) {
+            return new List<CalendarEventDTO>();
+        }
+
+        List<CalendarEventDTO> rows = new List<CalendarEventDTO>();
+
+        for (Task taskRow : [
+            SELECT Id, Subject, OwnerId, Owner.Name, ActivityDate,
+                   ReminderDateTime, Status, Priority, Activity_Type__c
+            FROM Task
+            WHERE OwnerId IN :ownerIds
+            AND (
+                (ReminderDateTime >= :rangeStart AND ReminderDateTime < :rangeEnd)
+                OR (ActivityDate >= :startValue AND ActivityDate <= :endValue)
+            )
+            ORDER BY ReminderDateTime NULLS LAST, ActivityDate, Subject
+            LIMIT 2000
+        ]) {
+            TaskCalendarRequestDTO matchedRequest = requestByOwner.get(taskRow.OwnerId);
+            if (matchedRequest == null) { continue; }
+
+            Boolean usesReminder = 'ReminderDateTime'.equalsIgnoreCase(matchedRequest.startField);
+            Datetime effectiveStart;
+            if (usesReminder && taskRow.ReminderDateTime != null) {
+                effectiveStart = taskRow.ReminderDateTime;
+            } else if (taskRow.ActivityDate != null) {
+                effectiveStart = Datetime.newInstance(taskRow.ActivityDate, Time.newInstance(0, 0, 0, 0));
+            } else {
+                continue;
+            }
+
+            if (effectiveStart < rangeStart || effectiveStart >= rangeEnd) {
+                continue;
+            }
+
+            String displayValue = taskRow.Subject;
+            if ('Activity_Type__c'.equalsIgnoreCase(matchedRequest.displayField)) {
+                displayValue = taskRow.Activity_Type__c != null
+                    ? taskRow.Activity_Type__c
+                    : taskRow.Subject;
+            }
+
+            CalendarEventDTO dto = new CalendarEventDTO();
+            dto.id = taskRow.Id;
+            dto.name = String.isNotBlank(displayValue) ? displayValue : 'Untitled Task';
+            dto.ownerId = taskRow.OwnerId;
+            dto.ownerName = taskRow.Owner.Name;
+            dto.start = effectiveStart;
+            dto.endDateTime = null;
+            dto.allDay = !usesReminder || taskRow.ReminderDateTime == null;
+            dto.status = taskRow.Status;
+            dto.notes = matchedRequest.calendarViewName + ' • Task';
+            dto.calendarId = matchedRequest.calendarViewId;
+            dto.calendarName = matchedRequest.calendarViewName;
+            dto.calendarColor = String.isNotBlank(matchedRequest.calendarViewColor)
+                ? matchedRequest.calendarViewColor : '#706e6b';
+            dto.externalEventId = null;
+            dto.syncStatus = null;
+            dto.syncError = null;
+            dto.lastSyncedAt = null;
+            rows.add(dto);
+        }
+
+        return rows;
     }
 }

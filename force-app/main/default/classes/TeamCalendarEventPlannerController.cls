@@ -249,12 +249,9 @@ public with sharing class TeamCalendarEventPlannerController {
 
     private static User loadAllowedAssignedUser(Id assignedUserId) {
         Set<Id> allowedUserIds = TeamCalendarUserPreferenceService.getAllowedSelectedUserIdsForCurrentUser();
-        if (allowedUserIds == null) {
-            allowedUserIds = new Set<Id>();
-        }
-        allowedUserIds.add(UserInfo.getUserId());
-
-        if (!allowedUserIds.contains(assignedUserId)) {
+        if (allowedUserIds != null
+            && !allowedUserIds.contains(assignedUserId)
+            && assignedUserId != UserInfo.getUserId()) {
             return null;
         }
 

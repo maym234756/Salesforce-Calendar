@@ -65,7 +65,7 @@ public with sharing class GoogleCalendarSyncService {
             return result;
         }
 
-        Calendar_Event__c evt = [
+        List<Calendar_Event__c> evtRows = [
             SELECT Id,
                    Name,
                    Start__c,
@@ -87,6 +87,12 @@ public with sharing class GoogleCalendarSyncService {
             WHERE Id = :calendarEventId
             LIMIT 1
         ];
+        if (evtRows.isEmpty()) {
+            result.success = false;
+            result.message = 'Calendar Event not found or may have been deleted.';
+            return result;
+        }
+        Calendar_Event__c evt = evtRows[0];
 
         String targetGoogleCalendarId = resolveTargetGoogleCalendarId(
             evt,
@@ -121,12 +127,18 @@ public with sharing class GoogleCalendarSyncService {
             return result;
         }
 
-        Team_Calendar__c calendarRow = [
+        List<Team_Calendar__c> calRows = [
             SELECT Id, Name, Google_Sync_Enabled__c, Google_Import_Calendar_Ids__c
             FROM Team_Calendar__c
             WHERE Id = :calendarId
             LIMIT 1
         ];
+        if (calRows.isEmpty()) {
+            result.success = false;
+            result.message = 'Team Calendar not found or may have been deleted.';
+            return result;
+        }
+        Team_Calendar__c calendarRow = calRows[0];
 
         if (calendarRow.Google_Sync_Enabled__c != true) {
             result.success = false;
@@ -215,12 +227,18 @@ public with sharing class GoogleCalendarSyncService {
             return result;
         }
 
-        Team_Calendar__c calendarRow = [
+        List<Team_Calendar__c> calRows = [
             SELECT Id, Name, Google_Sync_Enabled__c, Google_Calendar_Id__c
             FROM Team_Calendar__c
             WHERE Id = :calendarId
             LIMIT 1
         ];
+        if (calRows.isEmpty()) {
+            result.success = false;
+            result.message = 'Team Calendar not found or may have been deleted.';
+            return result;
+        }
+        Team_Calendar__c calendarRow = calRows[0];
 
         if (calendarRow.Google_Sync_Enabled__c != true) {
             result.success = false;
@@ -247,7 +265,7 @@ public with sharing class GoogleCalendarSyncService {
             soql += ' AND Start__c <= :endDate';
         }
 
-        soql += ' ORDER BY Start__c ASC';
+        soql += ' ORDER BY Start__c ASC LIMIT 50000';
 
         List<Calendar_Event__c> rows = Database.query(soql);
 
@@ -423,6 +441,7 @@ public with sharing class GoogleCalendarSyncService {
 
         HttpRequest req = new HttpRequest();
         req.setHeader('Content-Type', 'application/json');
+        req.setTimeout(20000);
 
         String encodedCalendarId = EncodingUtil.urlEncode(googleCalendarId, 'UTF-8');
         Boolean isInsert = String.isBlank(evt.External_Event_Id__c);
@@ -562,12 +581,15 @@ public with sharing class GoogleCalendarSyncService {
               AND Sync_Source__c = 'Google'
               AND Google_Source_Calendar_Id__c IN :googleCalendarIds
               AND External_Event_Id__c != NULL
+              LIMIT 50000
         ]) {
             results.put(buildImportEventKey(row.Google_Source_Calendar_Id__c, row.External_Event_Id__c), row);
         }
 
         return results;
     }
+
+    private static final Integer MAX_IMPORT_PAGES = 40;
 
     private static List<Object> loadGoogleEvents(
         String googleCalendarId,
@@ -576,8 +598,10 @@ public with sharing class GoogleCalendarSyncService {
     ) {
         List<Object> results = new List<Object>();
         String nextPageToken;
+        Integer pageCount = 0;
 
         do {
+            pageCount++;
             HttpRequest request = new HttpRequest();
             request.setMethod('GET');
             request.setEndpoint(buildGoogleImportEndpoint(googleCalendarId, start, endDate, nextPageToken));
@@ -600,7 +624,7 @@ public with sharing class GoogleCalendarSyncService {
             }
 
             nextPageToken = parsed != null ? (String) parsed.get('nextPageToken') : null;
-        } while (!String.isBlank(nextPageToken));
+        } while (!String.isBlank(nextPageToken) && pageCount < MAX_IMPORT_PAGES);
 
         return results;
     }

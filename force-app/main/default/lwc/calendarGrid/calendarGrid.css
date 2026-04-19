@@ -25,7 +25,6 @@
 .weekdays,
 .calendar-grid {
     display: grid;
-    grid-template-columns: repeat(7, minmax(0, 1fr));
     min-width: 920px;
 }
 
@@ -219,8 +218,4 @@
     font-weight: 700;
     width: 100%;
     max-width: 100%;
-}
-
-.more-events {
-    display: none;
 }

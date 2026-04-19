@@ -5,6 +5,14 @@ export default class CalendarAgenda extends LightningElement {
     hasNativeQuickActionListeners = false;
     hoveredRecordId = null;
 
+    constructor() {
+        super();
+        this._boundHoverOver = this.handleNativeHoverOver.bind(this);
+        this._boundHoverOut = this.handleNativeHoverOut.bind(this);
+        this._boundMouseDown = this.handleNativeQuickActionMouseDown.bind(this);
+        this._boundContextMenu = this.handleNativeQuickActionContextMenu.bind(this);
+    }
+
     get hasGroups() {
         return Array.isArray(this.groups) && this.groups.length > 0;
     }
@@ -14,11 +22,19 @@ export default class CalendarAgenda extends LightningElement {
             return;
         }
 
-        this.template.addEventListener('mouseover', this.handleNativeHoverOver.bind(this));
-        this.template.addEventListener('mouseout', this.handleNativeHoverOut.bind(this));
-        this.template.addEventListener('mousedown', this.handleNativeQuickActionMouseDown.bind(this));
-        this.template.addEventListener('contextmenu', this.handleNativeQuickActionContextMenu.bind(this));
+        this.template.addEventListener('mouseover', this._boundHoverOver);
+        this.template.addEventListener('mouseout', this._boundHoverOut);
+        this.template.addEventListener('mousedown', this._boundMouseDown);
+        this.template.addEventListener('contextmenu', this._boundContextMenu);
         this.hasNativeQuickActionListeners = true;
+    }
+
+    disconnectedCallback() {
+        this.template.removeEventListener('mouseover', this._boundHoverOver);
+        this.template.removeEventListener('mouseout', this._boundHoverOut);
+        this.template.removeEventListener('mousedown', this._boundMouseDown);
+        this.template.removeEventListener('contextmenu', this._boundContextMenu);
+        this.hasNativeQuickActionListeners = false;
     }
 
     handleDayAdd(event) {

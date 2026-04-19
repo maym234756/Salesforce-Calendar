@@ -1,5 +1,8 @@
 import { LightningElement, api } from 'lwc';
 
+const HEX_COLOR_REGEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+function sanitizeColor(v) { return HEX_COLOR_REGEX.test(v || '') ? v : '#0176d3'; }
+
 export default class CalendarLegend extends LightningElement {
     @api items = [];
 
@@ -11,7 +14,7 @@ export default class CalendarLegend extends LightningElement {
             return {
                 key: item.id || item.key || `${label}-${index}`,
                 label,
-                swatchStyle: `display:inline-block;width:0.75rem;height:0.75rem;border-radius:999px;background:${color};`
+                swatchStyle: `display:inline-block;width:0.75rem;height:0.75rem;border-radius:999px;background:${sanitizeColor(color)};`
             };
         });
     }

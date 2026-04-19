@@ -1,0 +1,151 @@
+Team Calendar Code Audit - Issues Report
+=========================================
+Generated: April 18, 2026
+
+
+CRITICAL (3)
+============
+
+#1 | teamCalendarBoard.js | isWeekendDay() checks wrong property names [FIXED]
+   Lines: ~3321-3335
+   Description: isWeekendDay() looked for day.dateKey, day.isoDate, day.dateValue, day.date
+   but buildCalendarWeeks() in calendarUtils.js uses day.key and day.isWeekend.
+   rawDate was always null, method always returned false, weekend hiding was completely broken.
+   Fix: Now uses day.isWeekend which is already computed correctly.
+
+#2 | TeamCalendarRecordMutationService.cls | without sharing + no CRUD/FLS checks [FIXED]
+   Lines: 1, and all DML operations
+   Description: Class was declared "public without sharing", bypassing org sharing rules.
+   All DML operations (insert/update/delete) on Calendar_Event__c, Task, and Team_Calendar__c
+   had no object-level CRUD checks. The custom access checks (enforceCalendarEventMutationAccess,
+   enforceTaskEditAccess) only verified ownership or security-admin status, not CRUD/FLS.
+   Fix: Changed to "with sharing" and added enforceCrudAccess() checks before every DML site.
+
+#3 | TeamCalendarUserPreferenceService.cls | Hardcoded profile names for security admin [FIXED]
+   Lines: 26-29, 80-92
+   Description: Security admin detection relied on hardcoded profile names:
+   'System Administrator' and 'teamMarine Admin'. If profiles are renamed or don't exist
+   in a deployment target, users silently lose admin access. Non-portable across orgs.
+   Fix: Replaced with Calendar_Security_Admin Custom Permission using FeatureManagement.checkPermission().
+
+
+HIGH (6)
+========
+
+#4 | teamCalendarBoard.js | runGoogleImportSync() passes wrong property names to Apex [FIXED]
+   Lines: ~2340-2347
+   Description: Uses visibleRange.start / visibleRange.end but getVisibleRange() returns
+   { startDate, endDate }. Both values are undefined, so Apex always receives null for
+   the date range. Google import sync ignores the user's currently visible date range.
+
+#5 | calendarGrid.js | gridStyle ternary has identical branches [FIXED]
+   Lines: 51-57
+   Description: Both true and false branches of the autoExpandDayHeight ternary produce
+   the identical CSS: repeat(N, minmax(0, 1fr)). The "Auto-expand day height" layout
+   preference toggle does nothing visually in the grid.
+
+#6 | calendarGrid.js + calendarGrid.html | showWeekends @api declared but never used [FIXED]
+   Lines: 7, 12-19
+   Description: showWeekends is declared as @api but the grid always renders 7 hardcoded
+   weekday headers (Sun-Sat) and CSS always uses grid-template-columns: repeat(7, ...).
+   The "Show weekends" toggle has zero effect on the grid view.
+
+#7 | TeamCalendarRecordMutationService.cls | Unhandled QueryException at 6 locations [FIXED]
+   Lines: ~141, ~167, ~198, ~225, ~242, ~293
+   Description: Six SOQL queries assign results directly to a single SObject variable.
+   If the record doesn't exist, Apex throws System.QueryException: List has no rows for
+   assignment to SObject. Users see a generic 500 error instead of a friendly message.
+   Affected methods: updateCalendarEvent, getCalendarEventEditorState, updateTask,
+   deleteCalendarEvent, deleteTask, resolveWritableTeamCalendarId.
+
+#8 | TeamCalendarBoardController.cls | Unbounded dynamic SOQL query [FIXED]
+   Lines: ~137-170
+   Description: getEventsForRange Database.query(soql) on Calendar_Event__c has no LIMIT
+   clause. Wide date ranges or org-wide queries could return tens of thousands of rows,
+   hitting the 50K SOQL row governor limit.
+
+#9 | teamCalendarBoard.html | Attributes passed to c-calendar-agenda that don't exist [FIXED]
+   Lines: 112-115
+   Description: show-weekends, wrap-event-titles, and compact-event-density are set on
+   c-calendar-agenda, but calendarAgenda.js only declares @api groups. These attributes
+   are silently ignored - the agenda view never respects these settings.
+
+
+MEDIUM (8)
+==========
+
+#10 | teamCalendarBoard.js | normalizeLayoutPreference drops teamLoad/conflicts as default views [FIXED]
+    Lines: ~3515-3519
+    Description: Only accepts 'week' or 'agenda', falling back to 'month'. But the Security
+    Manager's normalizeLayoutDraft correctly allows all five views (month, week, agenda,
+    teamLoad, conflicts). An admin can save teamLoad or conflicts as a user's default view
+    but the board silently overrides it to 'month'.
+
+#11 | teamCalendarBoard.css | Missing CSS classes board-content--compact and board-content--wrap [FIXED]
+    Description: The boardContentClass getter in teamCalendarBoard.js dynamically appends
+    these modifier classes, but they are never defined in the CSS file. Compact density
+    and wrap titles features have no visual effect at the board level.
+
+#12 | calendarCreateModal.js | No null check on Start/End dates before save [FIXED]
+    Lines: ~547-570
+    Description: Start__c and End__c can be null if the user never interacted with the date
+    inputs or cleared them. If the HTML doesn't mark those inputs as required, the form
+    submits with null dates, causing an Apex-side error instead of client-side validation.
+
+#13 | calendarEventDrawer.js | loadEventState re-throws after handleError [FIXED]
+    Lines: ~346-356
+    Description: The throw after handleError causes an unhandled promise rejection in
+    handleEdit. The drawer enters an inconsistent state where isEditMode may have been
+    set to true before the error was thrown from loadEventDraft.
+
+#14 | GoogleCalendarConnectionService.cls | No authorization check on sync config changes [FIXED]
+    Lines: ~176-214
+    Description: saveCalendarSelection and saveImportCalendarSelections are @AuraEnabled
+    with no security admin or ownership check. Any user with CRUD access can change any
+    calendar's Google sync settings.
+
+#15 | GoogleCalendarSyncService.cls | Unbounded callout pagination + DML rows [FIXED]
+    Lines: ~100-145, ~585-610
+    Description: loadGoogleEvents paginates with no cap on total items/pages. Each page
+    fetches 250 events. Could accumulate up to 25,000 events, risking 10,000 DML rows
+    governor limit and heap size limits.
+
+#16 | TeamCalendarRecordMutationService.cls | Race condition creating duplicate calendars [FIXED]
+    Lines: 269-302
+    Description: resolveWritableTeamCalendarId has a check-then-create pattern with no
+    locking. Two simultaneous requests for the same owner could both create a calendar,
+    leaving duplicate Team_Calendar__c records.
+
+#17 | poller.js | start() without stop() creates parallel polling chains [FIXED]
+    Lines: 51-55
+    Description: Calling start() without first calling stop() resets the stopped flag
+    but doesn't cancel any pending setTimeout. A timer from a previous chain fires and
+    resumes ticking because stopped was set back to false.
+
+
+LOW (5)
+=======
+
+#18 | teamCalendarBoard.html | Hover card iterator key={line} - duplicate text causes error
+    Lines: 264
+    Description: In hoveredEventPreview.lines, if two lines have identical text, LWC
+    throws a duplicate key error at runtime. Should include index in the key.
+
+#19 | TeamCalendarBoardController.cls | Dynamic SOQL uses string concatenation
+    Lines: 157-162
+    Description: calendarId and statusFilter injected via String.escapeSingleQuotes() +
+    concatenation instead of bind variables. Works but harder to audit than bind variables.
+
+#20 | TeamCalendarUserPreferenceService.cls | isSecurityAdmin() returns true in test context
+    Lines: 79-82, 89-91
+    Description: No test ever validates that security enforcement actually works. If someone
+    introduces a regression in the permission check, tests would still pass.
+
+#21 | calendarLegend.css | All CSS classes unused - dead code
+    Lines: 1-18
+    Description: Template uses SLDS pill classes instead. The entire CSS file is dead code.
+
+#22 | calendarEventDrawer.css | Four unused CSS classes - dead code
+    Lines: 5-35
+    Description: .drawer-header, .drawer-grid, .drawer-section, .drawer-footer are defined
+    but the HTML template uses SLDS classes instead.

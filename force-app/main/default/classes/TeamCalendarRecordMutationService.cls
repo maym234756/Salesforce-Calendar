@@ -1,4 +1,4 @@
-public without sharing class TeamCalendarRecordMutationService {
+public with sharing class TeamCalendarRecordMutationService {
     public class CalendarEventMutationInput {
         @AuraEnabled public String recordId;
         @AuraEnabled public String calendarId;
@@ -76,6 +76,7 @@ public without sharing class TeamCalendarRecordMutationService {
             isSecurityAdmin
         );
         enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, resolvedOwnerId);
+        enforceCrudAccess(Calendar_Event__c.SObjectType, 'create');
 
         Calendar_Event__c primaryRow = buildCalendarEventRow(
             request.primaryEvent,
@@ -152,14 +153,20 @@ public without sharing class TeamCalendarRecordMutationService {
         Id runningUserId = UserInfo.getUserId();
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
 
-        Calendar_Event__c existingRow = [
+        Calendar_Event__c existingRow;
+        List<Calendar_Event__c> existingRows = [
             SELECT Id, OwnerId, Calendar__c
             FROM Calendar_Event__c
             WHERE Id = :recordId
             LIMIT 1
         ];
+        if (existingRows.isEmpty()) {
+            throw new AuraHandledException('The calendar event was not found or may have been deleted.');
+        }
+        existingRow = existingRows[0];
 
         enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, existingRow.OwnerId);
+        enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
 
         Id resolvedCalendarId = resolveWritableTeamCalendarId(
             request != null ? parseId(request.calendarId) : existingRow.Calendar__c,
@@ -187,12 +194,17 @@ public without sharing class TeamCalendarRecordMutationService {
         Id runningUserId = UserInfo.getUserId();
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
 
-        Calendar_Event__c existingRow = [
+        Calendar_Event__c existingRow;
+        List<Calendar_Event__c> existingRows = [
             SELECT Id, OwnerId, Calendar__c, Name, Start__c, End__c, All_Day__c, Status__c, Notes__c
             FROM Calendar_Event__c
             WHERE Id = :resolvedRecordId
             LIMIT 1
         ];
+        if (existingRows.isEmpty()) {
+            throw new AuraHandledException('The calendar event was not found or may have been deleted.');
+        }
+        existingRow = existingRows[0];
 
         enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, existingRow.OwnerId);
 
@@ -228,13 +240,18 @@ public without sharing class TeamCalendarRecordMutationService {
         Id runningUserId = UserInfo.getUserId();
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
         enforceTaskEditAccess(runningUserId, isSecurityAdmin, calendarViewId);
+        enforceCrudAccess(Task.SObjectType, 'update');
 
-        Task existingRow = [
+        List<Task> existingTasks = [
             SELECT Id, OwnerId
             FROM Task
             WHERE Id = :recordId
             LIMIT 1
         ];
+        if (existingTasks.isEmpty()) {
+            throw new AuraHandledException('The task was not found or may have been deleted.');
+        }
+        Task existingRow = existingTasks[0];
 
         Id nextOwnerId = parseId(request.ownerId);
         if (nextOwnerId == null) {
@@ -266,14 +283,20 @@ public without sharing class TeamCalendarRecordMutationService {
         Id runningUserId = UserInfo.getUserId();
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
 
-        Calendar_Event__c existingRow = [
+        Calendar_Event__c existingRow;
+        List<Calendar_Event__c> existingRows = [
             SELECT Id, OwnerId
             FROM Calendar_Event__c
             WHERE Id = :resolvedRecordId
             LIMIT 1
         ];
+        if (existingRows.isEmpty()) {
+            throw new AuraHandledException('The calendar event was not found or may have been deleted.');
+        }
+        existingRow = existingRows[0];
 
         enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, existingRow.OwnerId);
+        enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
         delete existingRow;
         return existingRow.Id;
     }
@@ -294,16 +317,20 @@ public without sharing class TeamCalendarRecordMutationService {
         Id runningUserId = UserInfo.getUserId();
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
         enforceTaskEditAccess(runningUserId, isSecurityAdmin, resolvedCalendarViewId);
+        enforceCrudAccess(Task.SObjectType, 'delete');
 
-        Task existingRow = [
+        List<Task> existingTasks = [
             SELECT Id
             FROM Task
             WHERE Id = :resolvedRecordId
             LIMIT 1
         ];
+        if (existingTasks.isEmpty()) {
+            throw new AuraHandledException('The task was not found or may have been deleted.');
+        }
 
-        delete existingRow;
-        return existingRow.Id;
+        delete existingTasks[0];
+        return existingTasks[0].Id;
     }
 
     private static void enforceCalendarEventMutationAccess(
@@ -398,12 +425,18 @@ public without sharing class TeamCalendarRecordMutationService {
             );
         }
 
-        User ownerRow = [
+        List<User> ownerRows2 = [
             SELECT Id, Name
             FROM User
             WHERE Id = :ownerId
             LIMIT 1
         ];
+        if (ownerRows2.isEmpty()) {
+            throw new AuraHandledException('The calendar owner could not be found.');
+        }
+        User ownerRow = ownerRows2[0];
+
+        enforceCrudAccess(Team_Calendar__c.SObjectType, 'create');
 
         Team_Calendar__c createdRow = new Team_Calendar__c(
             Name = ownerRow.Name + ' Calendar',
@@ -412,7 +445,24 @@ public without sharing class TeamCalendarRecordMutationService {
             Is_Active__c = true,
             Google_Sync_Enabled__c = false
         );
-        insert createdRow;
+
+        try {
+            insert createdRow;
+        } catch (DmlException ex) {
+            // Race condition: another transaction may have created a calendar concurrently.
+            // Re-query to find the calendar that was just created.
+            List<Team_Calendar__c> retryRows = [
+                SELECT Id
+                FROM Team_Calendar__c
+                WHERE OwnerId = :ownerId
+                ORDER BY Name
+                LIMIT 1
+            ];
+            if (!retryRows.isEmpty()) {
+                return retryRows[0].Id;
+            }
+            throw new AuraHandledException(ex.getMessage());
+        }
         return createdRow.Id;
     }
 
@@ -477,6 +527,23 @@ public without sharing class TeamCalendarRecordMutationService {
             return Date.valueOf(rawValue);
         } catch (Exception ex) {
             return null;
+        }
+    }
+
+    private static void enforceCrudAccess(Schema.SObjectType sObjectType, String operation) {
+        Schema.DescribeSObjectResult describe = sObjectType.getDescribe();
+        Boolean allowed = false;
+        if (operation == 'create') {
+            allowed = describe.isCreateable();
+        } else if (operation == 'update') {
+            allowed = describe.isUpdateable();
+        } else if (operation == 'delete') {
+            allowed = describe.isDeletable();
+        }
+        if (!allowed) {
+            throw new AuraHandledException(
+                'You do not have ' + operation + ' access to ' + describe.getLabel() + ' records.'
+            );
         }
     }
 }

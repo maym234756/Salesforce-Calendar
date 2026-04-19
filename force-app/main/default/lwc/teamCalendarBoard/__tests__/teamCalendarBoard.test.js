@@ -201,8 +201,6 @@ describe('c-team-calendar-board', () => {
       ])
       .mockResolvedValue([]);
 
-    window.confirm = jest.fn(() => true);
-
     const element = createElement('c-team-calendar-board', {
       is: TeamCalendarBoard
     });
@@ -228,13 +226,15 @@ describe('c-team-calendar-board', () => {
     element.shadowRoot.querySelector('.event-context-menu__item').click();
     await flushPromises();
 
-    expect(window.confirm).toHaveBeenCalled();
+    const confirmBtn = element.shadowRoot.querySelector('.slds-button_destructive');
+    expect(confirmBtn).not.toBeNull();
+    confirmBtn.click();
+    await flushPromises();
+
     expect(deleteCalendarEvent).toHaveBeenCalledWith({ recordId: 'a1B000000000001AAA' });
   });
 
   it('deletes task records through the mutation service when the context menu is opened', async () => {
-    window.confirm = jest.fn(() => true);
-
     const element = createElement('c-team-calendar-board', {
       is: TeamCalendarBoard
     });
@@ -261,6 +261,11 @@ describe('c-team-calendar-board', () => {
     expect(menuButton.textContent).toContain('Delete Task');
 
     menuButton.click();
+    await flushPromises();
+
+    const confirmBtn = element.shadowRoot.querySelector('.slds-button_destructive');
+    expect(confirmBtn).not.toBeNull();
+    confirmBtn.click();
     await flushPromises();
 
     expect(deleteTask).toHaveBeenCalledWith({
@@ -368,7 +373,7 @@ describe('c-team-calendar-board', () => {
     });
   });
 
-  it('opens task records in the drawer with edit access disabled when the row is read only', async () => {
+  it('navigates directly to task records instead of opening the drawer', async () => {
     const element = createElement('c-team-calendar-board', {
       is: TeamCalendarBoard
     });
@@ -387,14 +392,18 @@ describe('c-team-calendar-board', () => {
     );
     await flushPromises();
 
-    const drawer = element.shadowRoot.querySelector('c-calendar-event-drawer');
-    expect(drawer).not.toBeNull();
-    expect(drawer.recordId).toBe('00T000000000001AAA');
-    expect(drawer.objectApiName).toBe('Task');
-    expect(drawer.canEdit).toBe(false);
+    expect(mockNavigate).toHaveBeenCalledWith({
+      type: 'standard__recordPage',
+      attributes: {
+        recordId: '00T000000000001AAA',
+        objectApiName: 'Task',
+        actionName: 'view'
+      }
+    });
+    expect(element.shadowRoot.querySelector('c-calendar-event-drawer')).toBeNull();
   });
 
-  it('infers task object type from record context when the open event omits it', async () => {
+  it('infers task object type from record context and navigates directly', async () => {
     getCalendars.mockResolvedValueOnce([
       {
         id: '00U000000000009AAA',
@@ -428,9 +437,15 @@ describe('c-team-calendar-board', () => {
     );
     await flushPromises();
 
-    const drawer = element.shadowRoot.querySelector('c-calendar-event-drawer');
-    expect(drawer.objectApiName).toBe('Task');
-    expect(drawer.canDelete).toBe(true);
+    expect(mockNavigate).toHaveBeenCalledWith({
+      type: 'standard__recordPage',
+      attributes: {
+        recordId: '00T000000000003AAA',
+        objectApiName: 'Task',
+        actionName: 'view'
+      }
+    });
+    expect(element.shadowRoot.querySelector('c-calendar-event-drawer')).toBeNull();
   });
 
   it('navigates to calendar-view unit records on left click instead of opening the drawer', async () => {
