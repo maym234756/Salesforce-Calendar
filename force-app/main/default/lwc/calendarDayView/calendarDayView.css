@@ -1,0 +1,139 @@
+/* All-day events bar -------------------------------------------------------- */
+.day-allday-bar {
+    display: flex;
+    align-items: flex-start;
+    padding: 0.25rem 0.5rem;
+    border-bottom: 1px solid #dddbda;
+    background: #f3f2f2;
+    gap: 0.5rem;
+    min-height: 2rem;
+}
+
+.day-allday-bar__label {
+    width: 4rem;
+    min-width: 4rem;
+    font-size: 0.75rem;
+    color: #706e6b;
+    padding-top: 0.25rem;
+    text-align: right;
+    flex-shrink: 0;
+}
+
+.day-allday-bar__events {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem;
+    flex: 1;
+}
+
+/* Scrollable time grid ------------------------------------------------------ */
+.day-grid {
+    overflow-y: auto;
+    max-height: calc(100vh - 14rem);
+    position: relative;
+}
+
+.day-grid__inner {
+    position: relative;
+    margin-left: 4rem; /* room for time labels */
+}
+
+/* Hour rows (time labels + horizontal rule) --------------------------------- */
+.day-hour-row {
+    position: absolute;
+    left: -4rem;
+    right: 0;
+    display: flex;
+    align-items: flex-start;
+    cursor: default;
+    box-sizing: border-box;
+}
+
+.day-hour-row:focus {
+    outline: none;
+    background: rgba(1, 118, 211, 0.05);
+}
+
+.day-hour-label {
+    width: 3.5rem;
+    min-width: 3.5rem;
+    font-size: 0.7rem;
+    color: #706e6b;
+    text-align: right;
+    padding-right: 0.5rem;
+    user-select: none;
+    transform: translateY(-0.55em);
+    flex-shrink: 0;
+}
+
+.day-hour-row:first-child .day-hour-label {
+    visibility: hidden; /* hide 12 AM label at top edge */
+}
+
+.day-hour-line {
+    flex: 1;
+    border-top: 1px solid #e4e2e2;
+    margin-top: 0;
+}
+
+/* Events layer -------------------------------------------------------------- */
+.day-events-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none; /* pass through clicks to hour rows */
+}
+
+.day-events-layer button {
+    pointer-events: all;
+}
+
+/* Timed event blocks -------------------------------------------------------- */
+.day-events-layer .event-pill {
+    position: absolute;
+    overflow: hidden;
+    border-radius: 0.25rem;
+    padding: 0.125rem 0.25rem;
+    text-align: left;
+    cursor: pointer;
+    box-sizing: border-box;
+    min-height: 1.5rem;
+    border: 1px solid rgba(0, 0, 0, 0.12);
+}
+
+.day-event-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.day-event-time {
+    font-size: 0.65rem;
+    opacity: 0.85;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Current-time red indicator ------------------------------------------------ */
+.day-now-line {
+    position: absolute;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: #e52207;
+    z-index: 10;
+    pointer-events: none;
+}
+
+.day-now-line::before {
+    content: '';
+    position: absolute;
+    left: -5px;
+    top: -4px;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: #e52207;
+}

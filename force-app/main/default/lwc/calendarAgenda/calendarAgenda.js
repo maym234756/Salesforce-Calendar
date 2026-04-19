@@ -56,7 +56,9 @@ export default class CalendarAgenda extends LightningElement {
                     recordObjectApiName: event.currentTarget.dataset.recordObjectApiName || null,
                     recordContextId: event.currentTarget.dataset.recordContextId || null,
                     canEdit: event.currentTarget.dataset.canEdit !== 'false',
-                    canDelete: event.currentTarget.dataset.canDelete === 'true'
+                    canDelete: event.currentTarget.dataset.canDelete === 'true',
+                    occurrenceDate: event.currentTarget.dataset.occurrenceDate || null,
+                    isRecurring: event.currentTarget.dataset.isRecurring === 'true'
                 }
             })
         );

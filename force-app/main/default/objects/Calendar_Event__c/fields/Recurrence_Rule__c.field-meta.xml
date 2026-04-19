@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Recurrence_Rule__c</fullName>
+    <description>RRULE string (RFC 5545) that defines the recurrence pattern for this event series, e.g. FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=10</description>
+    <externalId>false</externalId>
+    <label>Recurrence Rule</label>
+    <length>255</length>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Text</type>
+    <unique>false</unique>
+</CustomField>

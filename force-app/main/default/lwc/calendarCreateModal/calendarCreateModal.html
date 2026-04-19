@@ -319,6 +319,21 @@
                         </div>
                     </div>
 
+                    <!-- Recurrence Section -->
+                    <div class="slds-grid slds-wrap slds-gutters slds-m-top_small">
+                        <div class="slds-col slds-size_1-of-1">
+                            <section class="form-panel slds-m-bottom_medium">
+                                <div class="section-title">Recurrence</div>
+                                <p class="section-help">Set a repeat schedule to automatically generate future occurrences of this event.</p>
+                                <c-calendar-recurrence-editor
+                                    rrule={recurrenceRule}
+                                    reference-date={startValue}
+                                    onrrulechange={handleRRuleChange}
+                                ></c-calendar-recurrence-editor>
+                            </section>
+                        </div>
+                    </div>
+
                     <footer class="slds-modal__footer modal-footer">
                         <lightning-button
                             type="button"

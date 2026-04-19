@@ -10,188 +10,27 @@ import getUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityContro
 import saveUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityController.saveUserLayoutPreference';
 import setLayoutFieldForAllUsers from '@salesforce/apex/TeamCalendarSecurityController.setLayoutFieldForAllUsers';
 
-const ACCESS_TAB = 'access';
-const LAYOUT_TAB = 'layout';
-const LAYOUT_FIELD_LABELS = {
-    showSecurityButton: 'Show Security button',
-    showRefreshButton: 'Show Refresh button',
-    showTodayButton: 'Show Today button',
-    showPrevNextButtons: 'Show Prev / Next buttons',
-    showNewButton: 'Show New button',
-    showFiltersButton: 'Show Filters button',
-    showSelectUsersBox: 'Show Select Users panel',
-    showFilterControls: 'Show View / Calendar / Status controls',
-    showWeekends: 'Show weekends',
-    autoExpandDayHeight: 'Auto-expand day height',
-    wrapEventTitles: 'Wrap event titles',
-    compactEventDensity: 'Compact event density',
-    isActive: 'Layout preference active'
-};
-
-const TOOLBAR_LAYOUT_FIELDS = [
-    'showSecurityButton',
-    'showRefreshButton',
-    'showTodayButton',
-    'showPrevNextButtons',
-    'showNewButton',
-    'showFiltersButton',
-    'showSyncPanel'
-];
-
-const BOARD_LAYOUT_FIELDS = [
-    'showSelectUsersBox',
-    'showFilterControls',
-    'showWeekends',
-    'autoExpandDayHeight',
-    'wrapEventTitles',
-    'compactEventDensity',
-    'isActive'
-];
-
-function normalizeAllowedSelectedUserIds(rawValue, fallbackIds = []) {
-    const source = Array.isArray(rawValue) ? rawValue : fallbackIds;
-    const seenIds = new Set();
-
-    return source.filter((row) => {
-        const candidate = typeof row === 'string' ? row.trim() : '';
-        if (!candidate || seenIds.has(candidate)) {
-            return false;
-        }
-
-        seenIds.add(candidate);
-        return true;
-    });
-}
-
-function createDefaultLayoutDraft(defaultAllowedSelectedUserIds = []) {
-    return {
-        defaultView: 'month',
-        defaultCalendarViewId: '',
-        defaultStatus: '',
-        showSecurityButton: true,
-        showRefreshButton: true,
-        showTodayButton: true,
-        showPrevNextButtons: true,
-        showNewButton: true,
-        showFiltersButton: true,
-        showSyncPanel: true,
-        showSelectUsersBox: true,
-        showFilterControls: true,
-        showWeekends: true,
-        autoExpandDayHeight: true,
-        wrapEventTitles: true,
-        compactEventDensity: false,
-        allowedSelectedUserIds: normalizeAllowedSelectedUserIds(defaultAllowedSelectedUserIds),
-        isActive: true
-    };
-}
-
-function normalizeLayoutDraft(rawValue, defaultAllowedSelectedUserIds = []) {
-    const fallback = createDefaultLayoutDraft(defaultAllowedSelectedUserIds);
-    const source = rawValue || {};
-
-    let defaultView = typeof source.defaultView === 'string' ? source.defaultView : '';
-    if (defaultView.toLowerCase() === 'teamload') {
-        defaultView = 'teamLoad';
-    }
-
-    const allowedViews = new Set(['month', 'week', 'agenda', 'teamLoad', 'conflicts']);
-
-    return {
-        defaultView: allowedViews.has(defaultView) ? defaultView : fallback.defaultView,
-        defaultCalendarViewId: source.defaultCalendarViewId || '',
-        defaultStatus: source.defaultStatus || '',
-        showSecurityButton:
-            source.showSecurityButton === undefined
-                ? fallback.showSecurityButton
-                : source.showSecurityButton === true,
-        showRefreshButton:
-            source.showRefreshButton === undefined
-                ? fallback.showRefreshButton
-                : source.showRefreshButton === true,
-        showTodayButton:
-            source.showTodayButton === undefined
-                ? fallback.showTodayButton
-                : source.showTodayButton === true,
-        showPrevNextButtons:
-            source.showPrevNextButtons === undefined
-                ? fallback.showPrevNextButtons
-                : source.showPrevNextButtons === true,
-        showNewButton:
-            source.showNewButton === undefined
-                ? fallback.showNewButton
-                : source.showNewButton === true,
-        showFiltersButton:
-            source.showFiltersButton === undefined
-                ? fallback.showFiltersButton
-                : source.showFiltersButton === true,
-        showSyncPanel:
-            source.showSyncPanel === undefined
-                ? fallback.showSyncPanel
-                : source.showSyncPanel === true,
-        showSelectUsersBox:
-            source.showSelectUsersBox === undefined
-                ? fallback.showSelectUsersBox
-                : source.showSelectUsersBox === true,
-        showFilterControls:
-            source.showFilterControls === undefined
-                ? fallback.showFilterControls
-                : source.showFilterControls === true,
-        showWeekends:
-            source.showWeekends === undefined
-                ? fallback.showWeekends
-                : source.showWeekends === true,
-        autoExpandDayHeight:
-            source.autoExpandDayHeight === undefined
-                ? fallback.autoExpandDayHeight
-                : source.autoExpandDayHeight === true,
-        wrapEventTitles:
-            source.wrapEventTitles === undefined
-                ? fallback.wrapEventTitles
-                : source.wrapEventTitles === true,
-        compactEventDensity: source.compactEventDensity === true,
-        allowedSelectedUserIds: normalizeAllowedSelectedUserIds(
-            source.allowedSelectedUserIds,
-            fallback.allowedSelectedUserIds
-        ),
-        isActive: source.isActive === undefined ? fallback.isActive : source.isActive === true
-    };
-}
-
-function normalizeAccessRow(row) {
-    const normalized = {
-        ...row,
-        canView: row?.canView === true,
-        canCreate: row?.canCreate === true,
-        canEdit: row?.canEdit === true,
-        canDelete: row?.canDelete === true,
-        canAssignUsers: row?.canAssignUsers === true,
-        canManageSecurity: row?.canManageSecurity === true,
-        isActive: row?.isActive === true
-    };
-
-    const hasElevatedAccess =
-        normalized.canCreate ||
-        normalized.canEdit ||
-        normalized.canDelete ||
-        normalized.canAssignUsers ||
-        normalized.canManageSecurity;
-
-    if (hasElevatedAccess) {
-        normalized.canView = true;
-        normalized.isActive = true;
-    }
-
-    if (!normalized.canView) {
-        normalized.canCreate = false;
-        normalized.canEdit = false;
-        normalized.canDelete = false;
-        normalized.canAssignUsers = false;
-        normalized.canManageSecurity = false;
-    }
-
-    return normalized;
-}
+import {
+    ACCESS_TAB,
+    LAYOUT_TAB,
+    LAYOUT_FIELD_LABELS,
+    createDefaultLayoutDraft,
+    normalizeLayoutDraft,
+    normalizeAccessRow,
+    normalizeCalendarView,
+    buildAccessRow,
+    rowHasGrantedAccess,
+    applyAccessPresetToRows,
+    getPresetLabel,
+    getRowPresetSummary,
+    buildToolbarVisibilitySummary,
+    buildBoardLayoutSummary,
+    buildSelectedUsersVisibilitySummaryLine,
+    buildLayoutActivationSummary,
+    buildApprovedSelectedUsersSummary,
+    buildApprovedSelectedUsersButtonLabel,
+    buildApprovedSelectedUsersCountLabel
+} from './calendarSecurityManagerHelpers';
 
 export default class CalendarSecurityManager extends LightningElement {
     users = [];
@@ -240,7 +79,7 @@ export default class CalendarSecurityManager extends LightningElement {
 
             this.users = Array.isArray(users) ? users : [];
             this.calendarViews = Array.isArray(calendarViews)
-                ? calendarViews.map((row) => this.normalizeCalendarView(row))
+                ? calendarViews.map(normalizeCalendarView)
                 : [];
 
             if (this.users.length > 0 && !this.selectedUserId) {
@@ -249,46 +88,6 @@ export default class CalendarSecurityManager extends LightningElement {
         } catch (error) {
             this.showError('Unable to load calendar security.', error);
         }
-    }
-
-    normalizeCalendarView(row) {
-        return {
-            id: row?.id || row?.Id || '',
-            name: row?.name || row?.Name || '',
-            ownerId: row?.ownerId || row?.OwnerId || '',
-            ownerName: row?.ownerName || row?.OwnerName || '',
-            startField: row?.startField || row?.StartField || '',
-            endField: row?.endField || row?.EndField || '',
-            displayField: row?.displayField || row?.DisplayField || '',
-            listViewFilterId: row?.listViewFilterId || row?.ListViewFilterId || '',
-            isDisplayed:
-                row?.isDisplayed !== undefined
-                    ? row.isDisplayed === true
-                    : row?.IsDisplayed === true
-        };
-    }
-
-    buildAccessRow(viewRow, existingRule) {
-        return normalizeAccessRow({
-            id: viewRow.id,
-            name: viewRow.name,
-            ownerId: viewRow.ownerId,
-            ownerName: viewRow.ownerName || '',
-            startField: viewRow.startField || '',
-            endField: viewRow.endField || '',
-            displayField: viewRow.displayField || '',
-            listViewFilterId: viewRow.listViewFilterId || '',
-            isDisplayed: viewRow.isDisplayed === true,
-
-            canView: existingRule ? existingRule.canView === true : false,
-            canCreate: existingRule ? existingRule.canCreate === true : false,
-            canEdit: existingRule ? existingRule.canEdit === true : false,
-            canDelete: existingRule ? existingRule.canDelete === true : false,
-            canAssignUsers: existingRule ? existingRule.canAssignUsers === true : false,
-            canManageSecurity: existingRule ? existingRule.canManageSecurity === true : false,
-            isActive: existingRule ? existingRule.isActive === true : false,
-            notes: existingRule ? existingRule.notes || '' : ''
-        });
     }
 
     get showGear() {
@@ -373,7 +172,7 @@ export default class CalendarSecurityManager extends LightningElement {
                 !this.showOnlySelectedOwnerViews || row.ownerId === this.selectedUserId;
             const matchesActive = !this.showOnlyActiveAccess || row.isActive === true;
             const matchesGranted =
-                !this.showOnlyGrantedAccess || this.rowHasGrantedAccess(row);
+                !this.showOnlyGrantedAccess || rowHasGrantedAccess(row);
 
             return (
                 matchesSearch &&
@@ -408,7 +207,7 @@ export default class CalendarSecurityManager extends LightningElement {
 
             groupsByOwner.get(ownerId).rows.push({
                 ...row,
-                presetSummary: this.getRowPresetSummary(row)
+                presetSummary: getRowPresetSummary(row)
             });
         });
 
@@ -574,43 +373,15 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     get approvedSelectedUsersButtonLabel() {
-        const totalCount = this.defaultAllowedSelectedUserIds.length;
-        const approvedCount = (this.layoutDraft?.allowedSelectedUserIds || []).length;
-
-        if (!totalCount || approvedCount === totalCount) {
-            return 'All active users approved';
-        }
-
-        if (!approvedCount) {
-            return 'No approved users';
-        }
-
-        return `${approvedCount} approved user${approvedCount === 1 ? '' : 's'}`;
+        return buildApprovedSelectedUsersButtonLabel(this.layoutDraft, this.defaultAllowedSelectedUserIds.length);
     }
 
     get approvedSelectedUsersCountLabel() {
-        const approvedCount = (this.layoutDraft?.allowedSelectedUserIds || []).length;
-        const totalCount = this.defaultAllowedSelectedUserIds.length;
-
-        return `${approvedCount} of ${totalCount} active user${totalCount === 1 ? '' : 's'} approved`;
+        return buildApprovedSelectedUsersCountLabel(this.layoutDraft, this.defaultAllowedSelectedUserIds.length);
     }
 
     get approvedSelectedUsersSummary() {
-        const approvedIds = new Set(this.layoutDraft?.allowedSelectedUserIds || []);
-        const approvedNames = (this.users || [])
-            .filter((row) => approvedIds.has(row.id))
-            .map((row) => row.name)
-            .filter(Boolean);
-
-        if (!approvedNames.length) {
-            return 'This user will not see any names in the Selected Users picker.';
-        }
-
-        if (approvedNames.length === this.defaultAllowedSelectedUserIds.length) {
-            return 'This user can see every active user in the Selected Users picker.';
-        }
-
-        return approvedNames.join(', ');
+        return buildApprovedSelectedUsersSummary(this.users, this.layoutDraft, this.defaultAllowedSelectedUserIds.length);
     }
 
     get approvedSelectedUserOptions() {
@@ -646,42 +417,19 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     get toolbarVisibilitySummary() {
-        const enabledCount = TOOLBAR_LAYOUT_FIELDS.filter(
-            (fieldName) => this.layoutDraft?.[fieldName] === true
-        ).length;
-
-        return `${enabledCount} of ${TOOLBAR_LAYOUT_FIELDS.length} toolbar controls visible`;
+        return buildToolbarVisibilitySummary(this.layoutDraft);
     }
 
     get boardLayoutSummary() {
-        const flags = [];
-
-        flags.push(this.layoutDraft?.showSelectUsersBox ? 'Selected Users visible' : 'Selected Users hidden');
-        flags.push(this.layoutDraft?.showFilterControls ? 'filters visible' : 'filters hidden');
-        flags.push(this.layoutDraft?.showWeekends ? 'weekends shown' : 'weekends hidden');
-        flags.push(this.layoutDraft?.compactEventDensity ? 'compact density' : 'standard density');
-
-        return flags.join(' • ');
+        return buildBoardLayoutSummary(this.layoutDraft);
     }
 
     get selectedUsersVisibilitySummaryLine() {
-        const approvedCount = (this.layoutDraft?.allowedSelectedUserIds || []).length;
-
-        if (!approvedCount) {
-            return 'No users will appear in the Selected Users picker.';
-        }
-
-        if (approvedCount === this.defaultAllowedSelectedUserIds.length) {
-            return 'All active users will appear in the Selected Users picker.';
-        }
-
-        return `${approvedCount} active users will appear in the Selected Users picker.`;
+        return buildSelectedUsersVisibilitySummaryLine(this.layoutDraft, this.defaultAllowedSelectedUserIds.length);
     }
 
     get layoutActivationSummary() {
-        return this.layoutDraft?.isActive
-            ? 'Layout preferences are active for this user.'
-            : 'Layout preferences are saved but inactive for this user.';
+        return buildLayoutActivationSummary(this.layoutDraft);
     }
 
     openModal() {
@@ -771,7 +519,7 @@ export default class CalendarSecurityManager extends LightningElement {
             });
 
             this.allAccessRows = this.calendarViews
-                .map((viewRow) => this.buildAccessRow(viewRow, existingRules.get(viewRow.id)))
+                .map((viewRow) => buildAccessRow(viewRow, existingRules.get(viewRow.id)))
                 .sort((left, right) => (left.name || '').localeCompare(right.name || ''));
 
             const cachedDraft = this.layoutDraftsByUser[userId];
@@ -909,7 +657,7 @@ export default class CalendarSecurityManager extends LightningElement {
             return;
         }
 
-        const updatedRows = this.applyAccessPresetToRows(new Set([rowId]), preset);
+        const updatedRows = applyAccessPresetToRows(this.allAccessRows, new Set([rowId]), preset);
         this.allAccessRows = updatedRows;
         this.enforceAccessibleDefaultCalendar();
         this.cacheCurrentLayoutDraft();
@@ -917,7 +665,7 @@ export default class CalendarSecurityManager extends LightningElement {
         this.dispatchEvent(
             new ShowToastEvent({
                 title: 'Updated',
-                message: `${this.getPresetLabel(preset)} applied to 1 calendar view.`,
+                message: `${getPresetLabel(preset)} applied to 1 calendar view.`,
                 variant: 'success'
             })
         );
@@ -1380,101 +1128,4 @@ export default class CalendarSecurityManager extends LightningElement {
         this.cacheCurrentLayoutDraft();
     }
 
-    rowHasGrantedAccess(row) {
-        return Boolean(
-            row &&
-                (row.canView === true ||
-                    row.canCreate === true ||
-                    row.canEdit === true ||
-                    row.canDelete === true ||
-                    row.canAssignUsers === true ||
-                    row.canManageSecurity === true)
-        );
-    }
-
-    applyAccessPresetToRows(rowIds, preset) {
-        return this.allAccessRows.map((row) => {
-            if (!rowIds.has(row.id)) {
-                return row;
-            }
-
-            if (preset === 'viewOnly') {
-                return normalizeAccessRow({
-                    ...row,
-                    canView: true,
-                    canCreate: false,
-                    canEdit: false,
-                    canDelete: false,
-                    canAssignUsers: false,
-                    canManageSecurity: false,
-                    isActive: true
-                });
-            }
-
-            if (preset === 'editor') {
-                return normalizeAccessRow({
-                    ...row,
-                    canView: true,
-                    canCreate: true,
-                    canEdit: true,
-                    canDelete: false,
-                    canAssignUsers: false,
-                    canManageSecurity: false,
-                    isActive: true
-                });
-            }
-
-            if (preset === 'clear') {
-                return normalizeAccessRow({
-                    ...row,
-                    canView: false,
-                    canCreate: false,
-                    canEdit: false,
-                    canDelete: false,
-                    canAssignUsers: false,
-                    canManageSecurity: false,
-                    isActive: false
-                });
-            }
-
-            return row;
-        });
-    }
-
-    getPresetLabel(preset) {
-        const labelByPreset = {
-            viewOnly: 'View Only',
-            editor: 'Editor',
-            clear: 'Clear Access'
-        };
-
-        return labelByPreset[preset] || 'Preset';
-    }
-
-    getRowPresetSummary(row) {
-        if (!row || !row.isActive) {
-            return 'Inactive';
-        }
-
-        if (
-            row.canView === true &&
-            row.canCreate !== true &&
-            row.canEdit !== true &&
-            row.canDelete !== true &&
-            row.canAssignUsers !== true &&
-            row.canManageSecurity !== true
-        ) {
-            return 'View Only';
-        }
-
-        if (row.canView === true && row.canCreate === true && row.canEdit === true) {
-            return 'Editor';
-        }
-
-        if (!this.rowHasGrantedAccess(row)) {
-            return 'No Access';
-        }
-
-        return 'Custom';
-    }
 }

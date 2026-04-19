@@ -112,6 +112,18 @@
                             </c-calendar-grid>
                         </template>
 
+                        <template if:true={isDayView}>
+                            <c-calendar-day-view
+                                day-view-data={dayViewData}
+                                ondayselect={handleDaySelect}
+                                oneventopen={handleEventOpen}
+                                oneventhover={handleEventHover}
+                                oneventunhover={handleEventUnhover}
+                                oneventcontextmenu={handleEventContextMenu}
+                            >
+                            </c-calendar-day-view>
+                        </template>
+
                         <template if:true={isAgendaView}>
                             <c-calendar-agenda
                                 groups={agendaGroups}
@@ -511,6 +523,8 @@
                 record-context-id={selectedRecordContextId}
                 can-edit={selectedRecordCanEdit}
                 can-delete={selectedRecordCanDelete}
+                occurrence-date={selectedRecordOccurrenceDate}
+                is-recurring={selectedRecordIsRecurring}
                 onclose={handleCloseDrawer}
             >
             </c-calendar-event-drawer>

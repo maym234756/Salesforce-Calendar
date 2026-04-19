@@ -49,6 +49,12 @@ public with sharing class TeamCalendarBoardController {
         @AuraEnabled public String syncStatus;
         @AuraEnabled public String syncError;
         @AuraEnabled public Datetime lastSyncedAt;
+        // Recurrence fields
+        @AuraEnabled public String recurrenceRule;
+        @AuraEnabled public Id recurrenceParentId;
+        @AuraEnabled public Boolean isRecurrenceException;
+        @AuraEnabled public String occurrenceDate;
+        @AuraEnabled public Boolean isRecurring;
     }
 
     @AuraEnabled(cacheable=true)
@@ -169,12 +175,15 @@ public with sharing class TeamCalendarBoardController {
         Id resolvedCalendarId = String.isNotBlank(calendarId) ? (Id) calendarId : null;
         String resolvedStatusFilter = String.isNotBlank(statusFilter) ? statusFilter : null;
 
+        // ── Step 1: Non-recurring events (no RRULE, not an exception record) ────
         String soql =
             'SELECT Id, Name, OwnerId, Owner.Name, Calendar__c, Calendar__r.Name, ' +
             'Calendar__r.Color__c, Calendar__r.OwnerId, Start__c, End__c, All_Day__c, Status__c, Notes__c, Private_To_Owner__c ' +
             'FROM Calendar_Event__c ' +
             'WHERE Start__c < :rangeEndExclusive ' +
-            'AND (End__c = null OR End__c >= :rangeStart)';
+            'AND (End__c = null OR End__c >= :rangeStart) ' +
+            'AND Recurrence_Rule__c = null ' +
+            'AND Is_Recurrence_Exception__c = false';
 
         if (resolvedCalendarId != null) {
             soql += ' AND Calendar__c = :resolvedCalendarId';
@@ -225,29 +234,182 @@ public with sharing class TeamCalendarBoardController {
                 }
             }
 
-            CalendarEventDTO dto = new CalendarEventDTO();
-            dto.id = eventRow.Id;
-            dto.name = eventRow.Name;
-            dto.ownerId = eventRow.OwnerId;
-            dto.ownerName = eventRow.Owner != null ? eventRow.Owner.Name : null;
-            dto.start = eventRow.Start__c;
-            dto.endDateTime = eventRow.End__c;
-            dto.allDay = eventRow.All_Day__c;
-            dto.status = eventRow.Status__c;
-            dto.notes = eventRow.Notes__c;
-            dto.calendarId = eventRow.Calendar__c;
-            dto.calendarName =
-                eventRow.Calendar__r != null ? eventRow.Calendar__r.Name : null;
-            dto.calendarColor =
-                eventRow.Calendar__r != null ? eventRow.Calendar__r.Color__c : null;
-            dto.externalEventId = null;
-            dto.syncStatus = null;
-            dto.syncError = null;
-            dto.lastSyncedAt = null;
-            rows.add(dto);
+            rows.add(buildStandardEventDTO(eventRow));
+        }
+
+        // ── Step 2: Recurring templates ────────────────────────────────────────
+        String templateSoql =
+            'SELECT Id, Name, OwnerId, Owner.Name, Calendar__c, Calendar__r.Name, ' +
+            'Calendar__r.Color__c, Calendar__r.OwnerId, Start__c, End__c, All_Day__c, Status__c, Notes__c, ' +
+            'Private_To_Owner__c, Recurrence_Rule__c ' +
+            'FROM Calendar_Event__c ' +
+            'WHERE Recurrence_Rule__c != null ' +
+            'AND Is_Recurrence_Exception__c = false ' +
+            'AND Recurrence_Parent__c = null';
+
+        if (resolvedCalendarId != null) {
+            templateSoql += ' AND Calendar__c = :resolvedCalendarId';
+        }
+
+        if (resolvedStatusFilter != null) {
+            templateSoql += ' AND Status__c = :resolvedStatusFilter';
+        }
+
+        templateSoql += ' ORDER BY Start__c, Name LIMIT 1000';
+
+        List<Calendar_Event__c> templates = Database.query(templateSoql);
+
+        if (!templates.isEmpty()) {
+            Set<Id> templateIds = new Map<Id, Calendar_Event__c>(templates).keySet();
+
+            // ── Step 3: Load exception records for these templates ─────────────
+            // Exceptions cover both overrides (Status != 'Deleted') and tombstones (Status = 'Deleted')
+            Map<Id, Map<String, Calendar_Event__c>> exceptionsByParent =
+                new Map<Id, Map<String, Calendar_Event__c>>();
+
+            for (Calendar_Event__c ex : [
+                SELECT Id, Name, OwnerId, Owner.Name, Calendar__c, Calendar__r.Name,
+                       Calendar__r.Color__c, Calendar__r.OwnerId, Start__c, End__c,
+                       All_Day__c, Status__c, Notes__c, Private_To_Owner__c,
+                       Recurrence_Parent__c, Occurrence_Date__c, Is_Recurrence_Exception__c
+                FROM Calendar_Event__c
+                WHERE Is_Recurrence_Exception__c = true
+                AND Recurrence_Parent__c IN :templateIds
+            ]) {
+                if (!exceptionsByParent.containsKey(ex.Recurrence_Parent__c)) {
+                    exceptionsByParent.put(ex.Recurrence_Parent__c, new Map<String, Calendar_Event__c>());
+                }
+                if (String.isNotBlank(ex.Occurrence_Date__c)) {
+                    exceptionsByParent.get(ex.Recurrence_Parent__c).put(ex.Occurrence_Date__c, ex);
+                }
+            }
+
+            // ── Step 4: Expand each template and build DTOs ───────────────────
+            for (Calendar_Event__c template : templates) {
+                if (
+                    template.Private_To_Owner__c == true &&
+                    template.OwnerId != UserInfo.getUserId()
+                ) {
+                    continue;
+                }
+
+                Id calOwner =
+                    template.Calendar__r != null ? template.Calendar__r.OwnerId : null;
+
+                if (!scopedUserIds.isEmpty()) {
+                    Boolean matchesScopedUser =
+                        scopedUserIds.contains(template.OwnerId) ||
+                        (calOwner != null && scopedUserIds.contains(calOwner));
+                    if (!matchesScopedUser) {
+                        continue;
+                    }
+                }
+
+                Id matchedUser = calOwner != null ? calOwner : template.OwnerId;
+                if (matchedUser != null) {
+                    Set<String> selectedCalendarNames =
+                        perUserCalendarSelections.get(String.valueOf(matchedUser));
+                    if (
+                        selectedCalendarNames != null &&
+                        !selectedCalendarNames.isEmpty() &&
+                        !selectedCalendarNames.contains(
+                            template.Calendar__r != null ? template.Calendar__r.Name : null
+                        )
+                    ) {
+                        continue;
+                    }
+                }
+
+                Map<String, Calendar_Event__c> exForTemplate =
+                    exceptionsByParent.containsKey(template.Id)
+                        ? exceptionsByParent.get(template.Id)
+                        : new Map<String, Calendar_Event__c>();
+
+                List<Datetime> occurrences = CalendarRecurrenceService.expandOccurrences(
+                    template, startValue, endValue
+                );
+
+                Long durationMs = template.End__c != null && template.Start__c != null
+                    ? template.End__c.getTime() - template.Start__c.getTime()
+                    : 0;
+
+                for (Datetime occ : occurrences) {
+                    String occDate = occ.date().year() + '-' +
+                        String.valueOf(occ.date().month()).leftPad(2, '0') + '-' +
+                        String.valueOf(occ.date().day()).leftPad(2, '0');
+
+                    if (exForTemplate.containsKey(occDate)) {
+                        Calendar_Event__c ex = exForTemplate.get(occDate);
+                        // Tombstone: skip this occurrence
+                        if (ex.Status__c == 'Deleted') {
+                            continue;
+                        }
+                        // Override: use the exception record
+                        CalendarEventDTO exDto = buildStandardEventDTO(ex);
+                        exDto.recurrenceParentId = template.Id;
+                        exDto.isRecurrenceException = true;
+                        exDto.occurrenceDate = occDate;
+                        rows.add(exDto);
+                    } else {
+                        // Virtual occurrence: project from template
+                        CalendarEventDTO vDto = new CalendarEventDTO();
+                        vDto.id = template.Id;
+                        vDto.name = template.Name;
+                        vDto.ownerId = template.OwnerId;
+                        vDto.ownerName = template.Owner != null ? template.Owner.Name : null;
+                        vDto.start = occ;
+                        vDto.endDateTime = durationMs > 0
+                            ? Datetime.newInstance(occ.getTime() + durationMs)
+                            : null;
+                        vDto.allDay = template.All_Day__c;
+                        vDto.status = template.Status__c;
+                        vDto.notes = template.Notes__c;
+                        vDto.calendarId = template.Calendar__c;
+                        vDto.calendarName =
+                            template.Calendar__r != null ? template.Calendar__r.Name : null;
+                        vDto.calendarColor =
+                            template.Calendar__r != null ? template.Calendar__r.Color__c : null;
+                        vDto.recurrenceRule = template.Recurrence_Rule__c;
+                        vDto.recurrenceParentId = null;
+                        vDto.isRecurrenceException = false;
+                        vDto.occurrenceDate = occDate;
+                        vDto.isRecurring = true;
+                        rows.add(vDto);
+                    }
+                }
+            }
         }
 
         return rows;
+    }
+
+    private static CalendarEventDTO buildStandardEventDTO(Calendar_Event__c eventRow) {
+        CalendarEventDTO dto = new CalendarEventDTO();
+        dto.id = eventRow.Id;
+        dto.name = eventRow.Name;
+        dto.ownerId = eventRow.OwnerId;
+        dto.ownerName = eventRow.Owner != null ? eventRow.Owner.Name : null;
+        dto.start = eventRow.Start__c;
+        dto.endDateTime = eventRow.End__c;
+        dto.allDay = eventRow.All_Day__c;
+        dto.status = eventRow.Status__c;
+        dto.notes = eventRow.Notes__c;
+        dto.calendarId = eventRow.Calendar__c;
+        dto.calendarName =
+            eventRow.Calendar__r != null ? eventRow.Calendar__r.Name : null;
+        dto.calendarColor =
+            eventRow.Calendar__r != null ? eventRow.Calendar__r.Color__c : null;
+        dto.externalEventId = null;
+        dto.syncStatus = null;
+        dto.syncError = null;
+        dto.lastSyncedAt = null;
+        // Recurrence fields
+        try { dto.recurrenceRule = (String) eventRow.get('Recurrence_Rule__c'); } catch (Exception ex) { }
+        try { dto.recurrenceParentId = (Id) eventRow.get('Recurrence_Parent__c'); } catch (Exception ex) { }
+        try { dto.isRecurrenceException = (Boolean) eventRow.get('Is_Recurrence_Exception__c'); } catch (Exception ex) { }
+        try { dto.occurrenceDate = (String) eventRow.get('Occurrence_Date__c'); } catch (Exception ex) { }
+        dto.isRecurring = String.isNotBlank(dto.recurrenceRule);
+        return dto;
     }
 
     @AuraEnabled(cacheable=true)

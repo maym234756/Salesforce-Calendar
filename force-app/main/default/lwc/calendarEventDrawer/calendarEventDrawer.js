@@ -4,8 +4,10 @@ import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import { getRecord } from 'lightning/uiRecordApi';
 import getCalendarEventEditorState from '@salesforce/apex/TeamCalendarRecordMutationService.getCalendarEventEditorState';
 import updateCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.updateCalendarEvent';
+import updateRecurringCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.updateRecurringCalendarEvent';
 import updateTask from '@salesforce/apex/TeamCalendarRecordMutationService.updateTask';
 import deleteCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.deleteCalendarEvent';
+import deleteRecurringCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.deleteRecurringCalendarEvent';
 import deleteTask from '@salesforce/apex/TeamCalendarRecordMutationService.deleteTask';
 
 const TASK_FIELDS = [
@@ -49,17 +51,28 @@ const EVENT_STATUS_OPTIONS = [
     { label: 'Cancelled', value: 'Cancelled' }
 ];
 
+const RECURRING_SCOPE_OPTIONS = [
+    { label: 'This event only', value: 'this' },
+    { label: 'This and following events', value: 'thisAndFollowing' },
+    { label: 'All events in the series', value: 'all' }
+];
+
 export default class CalendarEventDrawer extends NavigationMixin(LightningElement) {
     @api recordId;
     @api objectApiName = 'Calendar_Event__c';
     @api canEdit = false;
     @api canDelete = false;
     @api recordContextId;
+    @api isRecurring = false;
+    @api occurrenceDate = null;
 
     isEditMode = false;
     isSaving = false;
     isDeleting = false;
     showDeleteConfirm = false;
+    showRecurrenceScopeModal = false;
+    recurrenceScopeAction = null;
+    selectedRecurringScope = 'this';
     isEventStateLoading = false;
     taskDraft = null;
     eventDraft = null;
@@ -130,6 +143,26 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
 
     get deleteButtonLabel() {
         return this.isTaskRecord ? 'Delete Task' : 'Delete Event';
+    }
+
+    get isRecurringEvent() {
+        return this.isCalendarEventRecord && this.isRecurring === true;
+    }
+
+    get recurringBadgeLabel() {
+        return 'Recurring Event';
+    }
+
+    get recurringScopeOptions() {
+        return RECURRING_SCOPE_OPTIONS;
+    }
+
+    get recurrenceScopeModalTitle() {
+        return this.recurrenceScopeAction === 'delete' ? 'Delete Recurring Event' : 'Edit Recurring Event';
+    }
+
+    get recurrenceScopeConfirmLabel() {
+        return this.recurrenceScopeAction === 'delete' ? 'Delete' : 'Save';
     }
 
     get taskStatusOptions() {
@@ -484,34 +517,69 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
             return;
         }
 
+        if (this.isRecurringEvent) {
+            this.recurrenceScopeAction = 'edit';
+            this.selectedRecurringScope = 'this';
+            this.showRecurrenceScopeModal = true;
+            return;
+        }
+
+        this._commitEventSave('none');
+    }
+
+    _commitEventSave(scope) {
         this.isSaving = true;
 
-        updateCalendarEvent({
-            requestJson: JSON.stringify({
-                recordId: this.recordId,
-                calendarId: this.eventDraft.calendarId,
-                name: this.eventDraft.name,
-                startValue: this.eventDraft.startValue,
-                endValue: this.eventDraft.endValue,
-                allDay: this.eventDraft.allDay === true,
-                status: this.eventDraft.status,
-                notes: this.eventDraft.notes
+        if (scope === 'none') {
+            updateCalendarEvent({
+                requestJson: JSON.stringify({
+                    recordId: this.recordId,
+                    calendarId: this.eventDraft.calendarId,
+                    name: this.eventDraft.name,
+                    startValue: this.eventDraft.startValue,
+                    endValue: this.eventDraft.endValue,
+                    allDay: this.eventDraft.allDay === true,
+                    status: this.eventDraft.status,
+                    notes: this.eventDraft.notes
+                })
             })
-        })
-            .then(() => {
-                this.handleSuccess();
-            })
-            .catch((error) => {
-                this.handleError({
-                    detail: {
-                        message: this.extractErrorMessage(error)
-                    }
+                .then(() => { this.handleSuccess(); })
+                .catch((error) => {
+                    this.handleError({ detail: { message: this.extractErrorMessage(error) } });
                 });
-            });
+        } else {
+            updateRecurringCalendarEvent({
+                requestJson: JSON.stringify({
+                    recordId: this.recordId,
+                    scope,
+                    occurrenceDate: this.occurrenceDate,
+                    eventData: {
+                        calendarId: this.eventDraft.calendarId,
+                        name: this.eventDraft.name,
+                        startValue: this.eventDraft.startValue,
+                        endValue: this.eventDraft.endValue,
+                        allDay: this.eventDraft.allDay === true,
+                        status: this.eventDraft.status,
+                        notes: this.eventDraft.notes
+                    }
+                })
+            })
+                .then(() => { this.handleSuccess(); })
+                .catch((error) => {
+                    this.handleError({ detail: { message: this.extractErrorMessage(error) } });
+                });
+        }
     }
 
     handleDelete() {
         if (!this.recordId || this.canDelete !== true || this.isDeleting) {
+            return;
+        }
+
+        if (this.isRecurringEvent) {
+            this.recurrenceScopeAction = 'delete';
+            this.selectedRecurringScope = 'this';
+            this.showRecurrenceScopeModal = true;
             return;
         }
 
@@ -523,38 +591,85 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
         this.showDeleteConfirm = false;
     }
 
+    handleRecurringScopeChange(event) {
+        this.selectedRecurringScope = event.detail?.value || 'this';
+    }
+
+    handleCancelRecurringScope() {
+        this.showRecurrenceScopeModal = false;
+        this.recurrenceScopeAction = null;
+        this.isSaving = false;
+    }
+
+    handleConfirmRecurringScope() {
+        this.showRecurrenceScopeModal = false;
+        const scope = this.selectedRecurringScope || 'this';
+
+        if (this.recurrenceScopeAction === 'delete') {
+            this._commitEventDelete(scope);
+        } else {
+            this._commitEventSave(scope);
+        }
+    }
+
     handleConfirmDelete() {
         this.showDeleteConfirm = false;
+        this._commitEventDelete('none');
+    }
 
+    _commitEventDelete(scope) {
         this.isDeleting = true;
 
-        const requestPromise = this.isTaskRecord
-            ? deleteTask({
-                recordId: this.recordId,
-                calendarViewId: this.recordContextId || null
-            })
-            : deleteCalendarEvent({ recordId: this.recordId });
+        if (scope === 'none') {
+            const requestPromise = this.isTaskRecord
+                ? deleteTask({
+                    recordId: this.recordId,
+                    calendarViewId: this.recordContextId || null
+                })
+                : deleteCalendarEvent({ recordId: this.recordId });
 
-        requestPromise
-            .then(() => {
-                this.isDeleting = false;
-                this.dispatchEvent(
-                    new ShowToastEvent({
-                        title: this.isTaskRecord ? 'Task Deleted' : 'Event Deleted',
-                        message: this.isTaskRecord ? 'Task deleted successfully.' : 'Calendar event deleted successfully.',
-                        variant: 'success'
-                    })
-                );
-                this.dispatchEvent(new CustomEvent('close'));
-            })
-            .catch((error) => {
-                this.isDeleting = false;
-                this.handleError({
-                    detail: {
-                        message: this.extractErrorMessage(error)
-                    }
+            requestPromise
+                .then(() => {
+                    this.isDeleting = false;
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: this.isTaskRecord ? 'Task Deleted' : 'Event Deleted',
+                            message: this.isTaskRecord ? 'Task deleted successfully.' : 'Calendar event deleted successfully.',
+                            variant: 'success'
+                        })
+                    );
+                    this.dispatchEvent(new CustomEvent('close'));
+                })
+                .catch((error) => {
+                    this.isDeleting = false;
+                    this.handleError({
+                        detail: { message: this.extractErrorMessage(error) }
+                    });
                 });
-            });
+        } else {
+            deleteRecurringCalendarEvent({
+                recordId: this.recordId,
+                scope,
+                occurrenceDate: this.occurrenceDate || ''
+            })
+                .then(() => {
+                    this.isDeleting = false;
+                    this.dispatchEvent(
+                        new ShowToastEvent({
+                            title: 'Event Deleted',
+                            message: 'Recurring calendar event deleted successfully.',
+                            variant: 'success'
+                        })
+                    );
+                    this.dispatchEvent(new CustomEvent('close'));
+                })
+                .catch((error) => {
+                    this.isDeleting = false;
+                    this.handleError({
+                        detail: { message: this.extractErrorMessage(error) }
+                    });
+                });
+        }
     }
 
     handleSuccess() {

@@ -1,0 +1,458 @@
+================================================================================
+  TEAM CALENDAR BOARD — ENHANCEMENT PLAN V1
+  Created: 2026-04-18
+================================================================================
+
+CURRENT STATE SUMMARY
+─────────────────────
+  Views:       Month, Week, Agenda, Team Load, Conflicts
+  Features:    Drag-and-drop (month/week), Event CRUD, Google Calendar sync,
+               Role-based security (6 granular permissions), PDF export,
+               User picker, Status filtering, Calendar legend, Reminders,
+               Private events, Multi-calendar support, Polling auto-refresh,
+               Event Planner modal, Hover cards, Platform events for sync
+  Components:  10 LWC + 8 Apex controllers/services + 1 trigger
+  Tests:       191 Apex org tests, 31 Jest tests — all passing
+  Deployed:    calendarDev org (2026-04-18)
+
+COMPONENT LINE COUNTS vs BUDGETS
+─────────────────────────────────
+  Component                  Lines    Budget    Status
+  teamCalendarBoard.js       3652     250       OVER (14.6x)
+  teamCalendarBoard.html      519     120       OVER (4.3x)
+  calendarSecurityManager.js 1480     n/a       —
+  calendarSecurityManager.html 986    n/a       —
+  calendarCreateModal.js     1118      80       OVER (14x)
+  calendarEventDrawer.js      704     100       OVER (7x)
+  calendarGrid.js             449     140       OVER (3.2x)
+  calendarUtils.js            469     220       OVER (2.1x)
+  calendarEventDrawer.html    372     120       OVER (3.1x)
+  calendarCreateModal.html    344     120       OVER (2.9x)
+  calendarToolbar.js          522     120       OVER (4.4x)
+  calendarToolbar.html        326     100       OVER (3.3x)
+  calendarAgenda.js           294     120       OVER (2.5x)
+  calendarGrid.html            91     140       OK
+  calendarAgenda.html          90     120       OK
+  calendarLegend.js            34      40       OK
+  calendarLegend.html          25      40       OK
+
+
+================================================================================
+  ENHANCEMENTS
+================================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+  #1  REFACTOR: Break up teamCalendarBoard.js (3,652 lines)
+──────────────────────────────────────────────────────────────────────────────
+  Severity: HIGH
+  Category: Architecture / Maintainability
+  
+  The main orchestrator is 14.6x over its 250-line budget. It owns state,
+  Apex calls, event handling, Google sync logic, PDF export, hover cards,
+  context menus, and view switching — all in one file.
+
+  Plan:
+  - Extract Google Sync logic → new calendarGoogleSync child component
+  - Extract PDF Export logic → new calendarPdfExport child component
+  - Extract Event Planner → already its own modal, but wiring lives in parent
+  - Extract context menu logic → new calendarContextMenu component
+  - Extract hover card logic → new calendarHoverCard component
+  - Move Apex call orchestration into a calendarDataService.js module
+  - Goal: teamCalendarBoard.js ≤ 500 lines (state + delegation only)
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #2  REFACTOR: Break up calendarCreateModal.js (1,118 lines)
+──────────────────────────────────────────────────────────────────────────────
+  Severity: HIGH
+  Category: Architecture / Maintainability
+
+  The create/edit modal is 14x over its 80-line budget.
+
+  Plan:
+  - Extract form field sections into child components (date picker group,
+    recurrence editor, user assignment picker)
+  - Extract validation logic → calendarUtils or a new validator module
+  - Extract recurrence rule builder → calendarRecurrenceEditor component
+  - Goal: calendarCreateModal.js ≤ 200 lines
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #3  REFACTOR: Break up calendarSecurityManager (1,480 + 986 lines)
+──────────────────────────────────────────────────────────────────────────────
+  Severity: HIGH
+  Category: Architecture / Maintainability
+
+  Combined JS+HTML is 2,466 lines — the largest component pair.
+
+  Plan:
+  - Extract Calendar View editor → calendarViewEditor component
+  - Extract Access Rule manager → calendarAccessRuleEditor component
+  - Extract User Preference bulk editor → calendarPreferenceEditor component
+  - Extract layout field toggles → calendarLayoutEditor component
+  - Goal: calendarSecurityManager.js ≤ 300 lines (tab navigation + delegation)
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #4  FEATURE: Day View
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Feature / UI
+
+  The calendar supports Month, Week, Agenda, Team Load, and Conflicts views
+  but has no dedicated Day view with hourly time slots.
+
+  Plan:
+  - New calendarDayView child component
+  - Vertical time-slot grid (24 hours, configurable business hours)
+  - Events rendered as positioned blocks based on start/end time
+  - Drag to resize event duration
+  - Click time slot to create event at that time
+  - Support for overlapping events (side-by-side columns)
+  - Wire into teamCalendarBoard view switching
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #5  FEATURE: Recurring Events
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Feature / Backend + UI
+
+  No recurrence support exists. Events are single-instance only.
+
+  Plan:
+  - New fields on Calendar_Event__c: Recurrence_Rule__c (RRULE string),
+    Recurrence_Parent__c (self-lookup), Is_Recurrence_Exception__c
+  - Recurrence engine in Apex: expand RRULE into occurrences on query
+  - UI: Recurrence editor in create modal (daily, weekly, monthly, yearly,
+    custom, end date/count)
+  - Edit options: "This event only" / "This and following" / "All events"
+  - Delete options: same three choices
+  - Google Sync: map to Google Calendar recurrence API
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #6  FEATURE: Inline Event Quick-Create
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Feature / UX
+
+  Currently clicking a day or time slot opens the full create modal.
+
+  Plan:
+  - Click on empty day cell → inline popover with Title, Start, End, Calendar
+  - "More Details" button opens full modal pre-filled
+  - Saves with one click for quick scheduling
+  - Works in month grid and week grid views
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #7  UX: Keyboard Navigation & Shortcuts
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Accessibility / UX
+
+  Basic keyboard support was added in V2 audit (arrow keys on grid, Enter
+  to open), but no global shortcuts exist.
+
+  Plan:
+  - T = Today, M = Month, W = Week, D = Day, A = Agenda
+  - N = New Event, R = Refresh
+  - Left/Right arrows = Prev/Next period
+  - Escape = close any open modal/drawer/popover
+  - ? = show keyboard shortcut overlay
+  - Trap focus inside modals (already partially done)
+  - Skip-to-content link for screen readers
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #8  UX: Mobile / Responsive Layout
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: UI / UX
+
+  The calendar is designed for desktop. No responsive breakpoints or
+  mobile-optimized views exist.
+
+  Plan:
+  - Toolbar collapses to hamburger menu on small screens
+  - Month view switches to list/agenda on mobile widths
+  - Drawer opens full-screen on mobile instead of side panel
+  - Touch-friendly event pills (larger tap targets)
+  - Swipe left/right for prev/next navigation
+  - Test in Salesforce Mobile app container
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #9  PERFORMANCE: Virtualized Event Rendering
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Performance
+
+  All events for the visible range are rendered in the DOM at once. With
+  hundreds of events across multiple calendars, this causes lag.
+
+  Plan:
+  - Implement "+N more" overflow on day cells (already have CSS, needs logic)
+  - Lazy-render event pills only for visible weeks (intersection observer)
+  - Debounce rapid view changes to avoid redundant Apex calls
+  - Cache event data per date range to avoid re-fetching on prev/next toggle
+  - Add loading skeletons during data fetch instead of spinner overlay
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #10  PERFORMANCE: Client-Side Event Caching
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Performance
+
+  Every view change or navigation triggers a fresh Apex call, even if the
+  data was just fetched seconds ago.
+
+  Plan:
+  - In-memory LRU cache keyed by (calendarIds, dateRange, users, status)
+  - Cache TTL: 60 seconds (configurable)
+  - Invalidate on create/update/delete/sync
+  - Show cached data immediately, then background-refresh
+  - Reduces Apex calls by ~60% during typical browsing
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #11  FEATURE: Event Color Customization Per-User
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Feature / UX
+
+  Event colors are driven by calendar definition only. Users cannot
+  override colors for their own view.
+
+  Plan:
+  - New field Calendar_User_Preference__c.Color_Overrides__c (JSON map)
+  - UI: color picker in legend component per calendar row
+  - Client-side override applied at render time (no backend change to events)
+  - Reset to default option
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #12  BACKEND: Batch Google Sync Scheduling
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Backend
+
+  Google sync is manual (user clicks "Sync Now"). No automated schedule.
+
+  Plan:
+  - Schedulable Apex class: GoogleCalendarSyncSchedulable
+  - Configurable interval via Custom Metadata or custom setting
+  - Per-calendar enable/disable toggle (Google_Sync_Enabled__c exists)
+  - Error notification: email or in-app notification on sync failure
+  - Sync history log object for audit trail
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #13  FEATURE: Event Search / Filter Bar
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Feature / UX
+
+  No text search exists. Users can only filter by calendar, status, and
+  user assignment.
+
+  Plan:
+  - Search bar in toolbar: filters visible events by title/notes/location
+  - Client-side instant filter (no Apex call) on already-loaded events
+  - Highlight matching events, dim non-matching
+  - Clear search restores full view
+  - Optional: SOSL-backed search for events outside current date range
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #14  FEATURE: Multi-Day Event Spanning
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Feature / UI
+
+  Multi-day events currently repeat as individual pills on each day
+  rather than rendering as a spanning bar across day columns.
+
+  Plan:
+  - Detect multi-day events in calendarGrid
+  - Render as a single horizontal bar spanning across day cells
+  - Handle week boundaries (event splits across rows)
+  - Dedicated "all-day" row at top of each week row
+  - Proper z-index stacking for overlapping multi-day bars
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #15  TESTING: Increase Jest Coverage
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Testing
+
+  31 Jest tests exist for teamCalendarBoard only. No other LWC has tests.
+
+  Plan:
+  - calendarGrid: drag-and-drop, keyboard nav, day click, "+N more"
+  - calendarToolbar: view switching, user picker, layout toggles
+  - calendarAgenda: group rendering, empty state, event click
+  - calendarEventDrawer: form validation, save/delete flow, mode switching
+  - calendarCreateModal: field validation, recurrence, calendar selection
+  - calendarLegend: toggle visibility, color display
+  - calendarUtils: pure function unit tests (date math, color sanitize)
+  - Target: 80%+ line coverage across all LWC components
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #16  UX: Undo/Redo for Event Mutations
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Feature / UX
+
+  Drag-and-drop moves, quick edits, and deletes are immediate with no
+  undo. Users must manually re-edit to reverse mistakes.
+
+  Plan:
+  - Toast notification with "Undo" action link after create/update/delete
+  - Store previous state in memory (last N mutations)
+  - Undo triggers reverse Apex call (update back to old values, undelete)
+  - 10-second undo window before toast auto-dismisses
+  - Works for drag-drop, inline edit, and delete operations
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #17  FEATURE: Event Templates
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Feature / UX
+
+  Every new event starts blank. Repetitive event types require re-entering
+  the same details each time.
+
+  Plan:
+  - New custom object: Calendar_Event_Template__c
+  - Admin creates templates (title, duration, calendar, default status, notes)
+  - Create modal: "From Template" dropdown pre-fills form fields
+  - User can customize before saving
+  - Template management UI in security manager admin panel
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #18  A11Y: ARIA Live Regions & Screen Reader Announcements
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Accessibility
+
+  Dynamic content changes (view switch, event load, drag result) are not
+  announced to screen readers.
+
+  Plan:
+  - Add aria-live="polite" region for status announcements
+  - Announce: "Showing 24 events for April 2026" after data load
+  - Announce: "Event moved to April 15" after drag-drop
+  - Announce: "Event created successfully" after save
+  - Announce view changes: "Now showing Week view"
+  - Ensure all interactive elements have accessible names
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #19  FEATURE: Export to CSV / iCal
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Feature
+
+  PDF export exists but no data export for use in other calendar apps.
+
+  Plan:
+  - Export visible events to CSV (title, start, end, calendar, status, user)
+  - Export to iCal (.ics) format for import into Outlook/Apple Calendar
+  - Bulk export or single-event export
+  - Download triggered from toolbar or context menu
+  - Apex endpoint generates file, LWC triggers download
+
+  Status: [ ]
+
+──────────────────────────────────────────────────────────────────────────────
+  #20  BACKEND: Event Change Notifications (Platform Events)
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Backend / Real-time
+
+  Calendar_Sync_Status__e platform event exists but is only used for
+  Google sync status. No real-time push for event changes.
+
+  Plan:
+  - New platform event: Calendar_Event_Change__e
+  - Published on event create/update/delete from trigger
+  - LWC subscribes via empApi to auto-refresh without polling
+  - Replace or supplement existing 30-second polling interval
+  - Reduces server load and provides instant updates across users
+
+  Status: [ ]
+
+
+================================================================================
+  PRIORITY ORDER (suggested)
+================================================================================
+
+  Phase 1 — Architecture (unblock future work): [Completed]
+    #1  Refactor teamCalendarBoard.js
+    #2  Refactor calendarCreateModal.js
+    #3  Refactor calendarSecurityManager
+
+  Phase 2 — Core Features: [Completed]
+    #4  Day View
+    #14 Multi-Day Event Spanning
+    #5  Recurring Events
+    #13 Event Search / Filter Bar
+
+  Phase 3 — UX & Accessibility: [Completed]
+    #7  Keyboard Shortcuts
+    #8  Mobile / Responsive Layout
+    #18 ARIA Live Regions
+    #6  Inline Quick-Create
+
+  Phase 4 — Performance: [Completed]
+    #9  Virtualized Event Rendering
+    #10 Client-Side Caching
+
+  Phase 5 — Nice-to-Have:
+    #15 Jest Coverage
+    #16 Undo/Redo
+    #20 Real-time Platform Events
+    #12 Batch Google Sync
+    #11 Per-User Color Overrides
+    #17 Event Templates
+    #19 CSV / iCal Export
+
+
+================================================================================
+  NOTES
+================================================================================
+
+  - All enhancements should respect existing component-budget.md targets
+  - Phase 1 refactors are prerequisite — adding features to 3,600-line files
+    will compound technical debt
+  - Each enhancement should include its own Jest tests
+  - Deploy after each phase with full RunLocalTests validation
+  - Google Sync enhancements (#5 recurrence, #12 scheduling) require
+    Named Credential / External Credential setup in target orgs
+
+================================================================================

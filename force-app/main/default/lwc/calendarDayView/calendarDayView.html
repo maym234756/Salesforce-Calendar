@@ -1,0 +1,101 @@
+<template>
+    <template if:true={hasData}>
+        <!-- All-day events bar -->
+        <template if:true={hasAllDayEvents}>
+            <div class="day-allday-bar">
+                <div class="day-allday-bar__label">All Day</div>
+                <div class="day-allday-bar__events">
+                    <template for:each={allDayEvents} for:item="ev">
+                        <button
+                            key={ev.id}
+                            type="button"
+                            class={ev.className}
+                            style={ev.styleText}
+                            title={ev.hoverText}
+                            data-id={ev.id}
+                            data-name={ev.name}
+                            data-record-object-api-name={ev.recordObjectApiName}
+                            data-record-context-id={ev.recordContextId}
+                            data-can-edit={ev.canEditAttr}
+                            data-can-delete={ev.canDeleteAttr}
+                            data-can-context-menu={ev.hasContextMenuAttr}
+                            data-occurrence-date={ev.occurrenceDate}
+                            data-is-recurring={ev.isRecurring}
+                            onclick={handleEventOpen}
+                            onmouseenter={handleEventHover}
+                            onmouseleave={handleEventUnhover}
+                            onpointerdown={handleEventPointerDown}
+                            onmousedown={handleEventMouseDown}
+                            oncontextmenu={handleEventContextMenu}
+                        >
+                            <div class="event-title">{ev.name}</div>
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+        <!-- Scrollable time grid -->
+        <div class="day-grid">
+            <div class="day-grid__inner" style={totalHeightStyle}>
+                <!-- Hour row separators + time labels -->
+                <template for:each={hourSlots} for:item="h">
+                    <div
+                        key={h.key}
+                        class="day-hour-row"
+                        style={h.rowStyle}
+                        role="button"
+                        tabindex="0"
+                        data-hour={h.hour}
+                        onclick={handleTimeSlotClick}
+                    >
+                        <span class="day-hour-label">{h.label}</span>
+                        <div class="day-hour-line"></div>
+                    </div>
+                </template>
+
+                <!-- Absolutely positioned timed events -->
+                <div class="day-events-layer">
+                    <template for:each={timedEvents} for:item="ev">
+                        <button
+                            key={ev.id}
+                            type="button"
+                            class={ev.className}
+                            style={ev.blockStyle}
+                            title={ev.hoverText}
+                            data-id={ev.id}
+                            data-name={ev.name}
+                            data-record-object-api-name={ev.recordObjectApiName}
+                            data-record-context-id={ev.recordContextId}
+                            data-can-edit={ev.canEditAttr}
+                            data-can-delete={ev.canDeleteAttr}
+                            data-can-context-menu={ev.hasContextMenuAttr}
+                            data-occurrence-date={ev.occurrenceDate}
+                            data-is-recurring={ev.isRecurring}
+                            onclick={handleEventOpen}
+                            onmouseenter={handleEventHover}
+                            onmouseleave={handleEventUnhover}
+                            onpointerdown={handleEventPointerDown}
+                            onmousedown={handleEventMouseDown}
+                            oncontextmenu={handleEventContextMenu}
+                        >
+                            <div class="day-event-title">{ev.name}</div>
+                            <div class="day-event-time">{ev.timeLabel}</div>
+                        </button>
+                    </template>
+                </div>
+
+                <!-- Current-time red line (today only) -->
+                <template if:true={isToday}>
+                    <div class="day-now-line" style={nowLineStyle}></div>
+                </template>
+            </div>
+        </div>
+    </template>
+
+    <template if:false={hasData}>
+        <div class="slds-box slds-theme_default slds-m-around_small">
+            No day data available.
+        </div>
+    </template>
+</template>

@@ -1,0 +1,92 @@
+<template>
+    <div class="recurrence-editor">
+        <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
+            <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                <lightning-combobox
+                    label="Repeat"
+                    value={freq}
+                    options={freqOptions}
+                    onchange={handleFreqChange}
+                ></lightning-combobox>
+            </div>
+
+            <template if:true={showRecurrenceBody}>
+                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                    <div class="interval-row">
+                        <lightning-input
+                            type="number"
+                            label="Every"
+                            value={interval}
+                            min="1"
+                            max="99"
+                            step="1"
+                            class="interval-input"
+                            onchange={handleIntervalChange}
+                        ></lightning-input>
+                        <span class="interval-unit">{intervalLabel}</span>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <template if:true={isWeekly}>
+            <div class="slds-m-bottom_small">
+                <p class="slds-text-body_small slds-text-color_weak slds-m-bottom_xx-small">Repeat on</p>
+                <div class="weekday-row">
+                    <template for:each={weekdayOptions} for:item="day">
+                        <button
+                            key={day.value}
+                            type="button"
+                            class={day.className}
+                            data-code={day.value}
+                            onclick={handleWeekdayToggle}
+                            aria-pressed={day.checked}
+                        >
+                            {day.label}
+                        </button>
+                    </template>
+                </div>
+            </div>
+        </template>
+
+        <template if:true={showRecurrenceBody}>
+            <div class="slds-grid slds-wrap slds-gutters slds-m-bottom_small">
+                <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                    <lightning-combobox
+                        label="Ends"
+                        value={endMode}
+                        options={endOptions}
+                        onchange={handleEndModeChange}
+                    ></lightning-combobox>
+                </div>
+
+                <template if:true={showEndCount}>
+                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                        <lightning-input
+                            type="number"
+                            label="After how many occurrences"
+                            value={endCount}
+                            min="1"
+                            max="500"
+                            step="1"
+                            onchange={handleEndCountChange}
+                        ></lightning-input>
+                    </div>
+                </template>
+
+                <template if:true={showEndUntil}>
+                    <div class="slds-col slds-size_1-of-1 slds-large-size_1-of-2">
+                        <lightning-input
+                            type="date"
+                            label="End date"
+                            value={endUntil}
+                            onchange={handleEndUntilChange}
+                        ></lightning-input>
+                    </div>
+                </template>
+            </div>
+
+            <p class="slds-text-body_small recurrence-preview">{previewLabel}</p>
+        </template>
+    </div>
+</template>

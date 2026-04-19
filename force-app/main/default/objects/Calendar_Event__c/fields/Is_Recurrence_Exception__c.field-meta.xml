@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Is_Recurrence_Exception__c</fullName>
+    <description>True when this record is an exception to a recurring series — either an override of specific occurrence details or a tombstone record representing a deleted occurrence.</description>
+    <defaultValue>false</defaultValue>
+    <externalId>false</externalId>
+    <label>Is Recurrence Exception</label>
+    <required>false</required>
+    <trackTrending>false</trackTrending>
+    <type>Checkbox</type>
+</CustomField>

@@ -24,6 +24,13 @@ export function buildDefaultDateTime(dateText, hour = 9) {
 }
 
 export function getVisibleRange(currentDate, currentView) {
+    if (currentView === 'day') {
+        return {
+            startDate: dateKey(currentDate),
+            endDate: dateKey(currentDate)
+        };
+    }
+
     if (currentView === 'week') {
         const start = startOfWeek(currentDate);
         const end = addDays(start, 6);
@@ -55,6 +62,15 @@ export function getVisibleRange(currentDate, currentView) {
 }
 
 export function buildRangeLabel(currentDate, currentView) {
+    if (currentView === 'day') {
+        return new Intl.DateTimeFormat('en-US', {
+            weekday: 'long',
+            month: 'long',
+            day: 'numeric',
+            year: 'numeric'
+        }).format(currentDate);
+    }
+
     if (currentView === 'week') {
         const range = getVisibleRange(currentDate, currentView);
         const start = new Date(`${range.startDate}T12:00:00`);
@@ -466,4 +482,230 @@ function safeDate(value) {
 
 function toDate(value) {
     return value instanceof Date ? new Date(value.getTime()) : new Date(value);
+}
+
+// ─── Day View ────────────────────────────────────────────────────────────────
+
+const DAY_HOUR_HEIGHT = 64; // px per hour — must match calendarDayView.css
+
+export function buildDayViewData(currentDate, events) {
+    const dateStr = dateKey(currentDate);
+    const todayKey = dateKey(new Date());
+    const isToday = dateStr === todayKey;
+
+    const hourSlots = [];
+    for (let h = 0; h < 24; h++) {
+        hourSlots.push({
+            key: `${dateStr}-h${h}`,
+            hour: h,
+            label: formatHour12(h),
+            rowStyle: `top: ${h * DAY_HOUR_HEIGHT}px; height: ${DAY_HOUR_HEIGHT}px;`
+        });
+    }
+
+    const allDayEvents = [];
+    const rawTimedEvents = [];
+
+    (events || []).forEach((ev) => {
+        const start = safeDate(ev.start);
+        if (!start) {
+            return;
+        }
+
+        if (ev.allDay) {
+            const startD = dateKey(start);
+            const endRaw = safeDate(ev.endDateTime);
+            const endD = endRaw ? dateKey(endRaw) : startD;
+            if (dateStr >= startD && dateStr <= endD) {
+                allDayEvents.push(buildDayViewAllDayEvent(ev));
+            }
+            return;
+        }
+
+        if (dateKey(start) !== dateStr) {
+            return;
+        }
+
+        const end = safeDate(ev.endDateTime) || new Date(start.getTime() + 30 * 60 * 1000);
+        const startMinutes = start.getHours() * 60 + start.getMinutes();
+        let endMinutes = end.getHours() * 60 + end.getMinutes();
+        if (endMinutes <= startMinutes) {
+            endMinutes = 24 * 60;
+        }
+        const durationMinutes = Math.max(endMinutes - startMinutes, 30);
+
+        rawTimedEvents.push({
+            ...buildDayViewTimedEvent(ev, startMinutes, durationMinutes),
+            startMinutes,
+            durationMinutes
+        });
+    });
+
+    rawTimedEvents.sort((a, b) => a.startMinutes - b.startMinutes);
+
+    const timedEvents = assignDayEventColumns(rawTimedEvents);
+
+    let nowLineStyle = '';
+    if (isToday) {
+        const now = new Date();
+        const nowPx = Math.round(((now.getHours() * 60 + now.getMinutes()) / 60) * DAY_HOUR_HEIGHT);
+        nowLineStyle = `top: ${nowPx}px;`;
+    }
+
+    return {
+        dateStr,
+        dateLabel: formatDayViewLabel(currentDate),
+        isToday,
+        totalHeightPx: 24 * DAY_HOUR_HEIGHT,
+        totalHeightStyle: `height: ${24 * DAY_HOUR_HEIGHT}px;`,
+        hourSlots,
+        allDayEvents,
+        timedEvents,
+        nowLineStyle,
+        hasAllDayEvents: allDayEvents.length > 0
+    };
+}
+
+function buildDayViewTimedEvent(ev, startMinutes, durationMinutes) {
+    const topPx = Math.round((startMinutes / 60) * DAY_HOUR_HEIGHT);
+    const heightPx = Math.max(Math.round((durationMinutes / 60) * DAY_HOUR_HEIGHT), 24);
+    const calendarColor = ev.calendarColor || '#1b96ff';
+
+    return {
+        id: ev.id,
+        name: ev.name || '(No Subject)',
+        timeLabel: buildDayEventTimeLabel(startMinutes, startMinutes + durationMinutes),
+        hoverText: buildDayEventHoverText(ev, startMinutes, startMinutes + durationMinutes),
+        className: buildDayEventClass(ev.status),
+        styleText: buildEventStyle(calendarColor),
+        recordObjectApiName: ev.recordObjectApiName || 'Calendar_Event__c',
+        recordContextId: ev.recordContextId || null,
+        canEditAttr: ev.canEditAttr || 'true',
+        canDeleteAttr: ev.canDeleteAttr || 'false',
+        hasContextMenuAttr: ev.hasContextMenuAttr || 'false',
+        topPx,
+        heightPx
+    };
+}
+
+function buildDayViewAllDayEvent(ev) {
+    const calendarColor = ev.calendarColor || '#1b96ff';
+
+    return {
+        id: ev.id,
+        name: ev.name || '(No Subject)',
+        hoverText: ev.name || '(No Subject)',
+        className: buildDayEventClass(ev.status),
+        styleText: buildEventStyle(calendarColor),
+        recordObjectApiName: ev.recordObjectApiName || 'Calendar_Event__c',
+        recordContextId: ev.recordContextId || null,
+        canEditAttr: ev.canEditAttr || 'true',
+        canDeleteAttr: ev.canDeleteAttr || 'false',
+        hasContextMenuAttr: ev.hasContextMenuAttr || 'false'
+    };
+}
+
+function assignDayEventColumns(events) {
+    if (!events.length) {
+        return events;
+    }
+
+    const groups = [];
+    let currentGroup = [];
+    let groupMaxEnd = 0;
+
+    events.forEach((ev) => {
+        if (currentGroup.length === 0 || ev.startMinutes < groupMaxEnd) {
+            currentGroup.push(ev);
+            groupMaxEnd = Math.max(groupMaxEnd, ev.startMinutes + ev.durationMinutes);
+        } else {
+            groups.push(currentGroup);
+            currentGroup = [ev];
+            groupMaxEnd = ev.startMinutes + ev.durationMinutes;
+        }
+    });
+    if (currentGroup.length) {
+        groups.push(currentGroup);
+    }
+
+    const result = [];
+    groups.forEach((group) => {
+        const colEnds = [];
+        const withCols = group.map((ev) => {
+            let col = colEnds.findIndex((end) => end <= ev.startMinutes);
+            if (col === -1) {
+                col = colEnds.length;
+                colEnds.push(ev.startMinutes + ev.durationMinutes);
+            } else {
+                colEnds[col] = ev.startMinutes + ev.durationMinutes;
+            }
+            return { ...ev, col };
+        });
+
+        const numCols = colEnds.length;
+        withCols.forEach((ev) => {
+            const leftPct = ((ev.col / numCols) * 100).toFixed(1);
+            const widthPct = ((1 / numCols) * 100).toFixed(1);
+            result.push({
+                ...ev,
+                blockStyle: `top: ${ev.topPx}px; height: ${ev.heightPx}px; left: calc(${leftPct}% + 2px); width: calc(${widthPct}% - 4px);`
+            });
+        });
+    });
+
+    return result;
+}
+
+function buildDayEventTimeLabel(startMinutes, endMinutes) {
+    return `${formatMinutesAs12h(startMinutes)} \u2013 ${formatMinutesAs12h(endMinutes % (24 * 60))}`;
+}
+
+function buildDayEventHoverText(ev, startMinutes, endMinutes) {
+    const parts = [ev.name || '(No Subject)'];
+    parts.push(buildDayEventTimeLabel(startMinutes, endMinutes));
+    if (ev.calendarName) {
+        parts.push(`Calendar: ${ev.calendarName}`);
+    }
+    if (ev.status) {
+        parts.push(`Status: ${ev.status}`);
+    }
+    return parts.join(' | ');
+}
+
+function formatHour12(hour) {
+    if (hour === 0) return '12 AM';
+    if (hour < 12) return `${hour} AM`;
+    if (hour === 12) return '12 PM';
+    return `${hour - 12} PM`;
+}
+
+function formatMinutesAs12h(totalMinutes) {
+    const h = Math.floor(totalMinutes / 60) % 24;
+    const m = totalMinutes % 60;
+    const amPm = h < 12 ? 'AM' : 'PM';
+    const displayH = h % 12 === 0 ? 12 : h % 12;
+    const paddedM = String(m).padStart(2, '0');
+    return `${displayH}:${paddedM} ${amPm}`;
+}
+
+function formatDayViewLabel(date) {
+    return new Intl.DateTimeFormat('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+    }).format(date);
+}
+
+function buildDayEventClass(status) {
+    let className =
+        'event-pill slds-button slds-button_reset slds-text-align_left slds-p-horizontal_x-small slds-p-vertical_xx-small';
+    if (status === 'Confirmed') {
+        className += ' event-pill--confirmed';
+    } else if (status === 'Cancelled') {
+        className += ' event-pill--cancelled';
+    } else {
+        className += ' event-pill--planned';
+    }
+    return className;
 }

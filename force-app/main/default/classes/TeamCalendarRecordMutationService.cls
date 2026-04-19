@@ -14,6 +14,14 @@ public with sharing class TeamCalendarRecordMutationService {
         @AuraEnabled public String reminderOffset;
         @AuraEnabled public String customerAccountId;
         @AuraEnabled public String customerContactId;
+        @AuraEnabled public String recurrenceRule;
+    }
+
+    public class RecurrenceScopeInput {
+        @AuraEnabled public String recordId;        // Template Calendar_Event__c Id
+        @AuraEnabled public String scope;           // 'this' | 'thisAndFollowing' | 'all'
+        @AuraEnabled public String occurrenceDate;  // YYYY-MM-DD of the targeted occurrence
+        @AuraEnabled public CalendarEventMutationInput eventData; // non-null for updates
     }
 
     public class CalendarEventSeriesInput {
@@ -491,19 +499,10 @@ public with sharing class TeamCalendarRecordMutationService {
         row.Reminder_Offset_Minutes__c = inputRow.reminderOffset;
         row.Customer_Account__c = parseId(inputRow.customerAccountId);
         row.Customer_Contact__c = parseId(inputRow.customerContactId);
+        row.Recurrence_Rule__c = String.isNotBlank(inputRow.recurrenceRule)
+            ? inputRow.recurrenceRule
+            : null;
         return row;
-    }
-
-    private static Id parseId(String rawValue) {
-        if (String.isBlank(rawValue)) {
-            return null;
-        }
-
-        try {
-            return (Id) rawValue;
-        } catch (Exception ex) {
-            return null;
-        }
     }
 
     private static Datetime parseDateTime(String rawValue) {
@@ -545,5 +544,286 @@ public with sharing class TeamCalendarRecordMutationService {
                 'You do not have ' + operation + ' access to ' + describe.getLabel() + ' records.'
             );
         }
+    }
+
+    private static Id parseId(String rawValue) {
+        if (String.isBlank(rawValue)) {
+            return null;
+        }
+        try {
+            return (Id) rawValue;
+        } catch (Exception ex) {
+            return null;
+        }
+    }
+
+    // -------------------------------------------------------------------------
+    // Recurring event operations
+    // -------------------------------------------------------------------------
+
+    /**
+     * Update a recurring event occurrence.
+     * scope='this'             — create/update a single exception record for occurrenceDate.
+     * scope='thisAndFollowing' — truncate the parent series before occurrenceDate, create a
+     *                           new series starting at occurrenceDate with the new data.
+     * scope='all'              — update the template record (affects all future occurrences).
+     */
+    @AuraEnabled
+    public static Id updateRecurringCalendarEvent(String requestJson) {
+        RecurrenceScopeInput request = String.isBlank(requestJson)
+            ? null
+            : (RecurrenceScopeInput) JSON.deserialize(requestJson, RecurrenceScopeInput.class);
+
+        if (request == null || String.isBlank(request.recordId)) {
+            throw new AuraHandledException('A recurring event id is required.');
+        }
+        if (String.isBlank(request.scope)) {
+            throw new AuraHandledException('A scope is required (this | thisAndFollowing | all).');
+        }
+
+        Id templateId = parseId(request.recordId);
+        Id runningUserId = UserInfo.getUserId();
+        Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
+
+        List<Calendar_Event__c> templateRows = [
+            SELECT Id, OwnerId, Calendar__c, Recurrence_Rule__c, Start__c
+            FROM Calendar_Event__c
+            WHERE Id = :templateId
+            LIMIT 1
+        ];
+        if (templateRows.isEmpty()) {
+            throw new AuraHandledException('Recurring event template not found.');
+        }
+        Calendar_Event__c template = templateRows[0];
+        enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, template.OwnerId);
+
+        if (request.scope == 'all') {
+            enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
+            Id resolvedCalendarId = resolveWritableTeamCalendarId(
+                request.eventData != null ? parseId(request.eventData.calendarId) : template.Calendar__c,
+                template.OwnerId,
+                isSecurityAdmin
+            );
+            Calendar_Event__c updatedRow = buildCalendarEventRow(
+                request.eventData, templateId, resolvedCalendarId, template.OwnerId
+            );
+            if (request.eventData == null || String.isBlank(request.eventData.recurrenceRule)) {
+                updatedRow.Recurrence_Rule__c = template.Recurrence_Rule__c;
+            }
+            update updatedRow;
+            return templateId;
+
+        } else if (request.scope == 'this') {
+            if (String.isBlank(request.occurrenceDate)) {
+                throw new AuraHandledException('Occurrence date is required for this scope.');
+            }
+            List<Calendar_Event__c> existing = [
+                SELECT Id
+                FROM Calendar_Event__c
+                WHERE Is_Recurrence_Exception__c = true
+                AND Recurrence_Parent__c = :templateId
+                AND Occurrence_Date__c = :request.occurrenceDate
+                LIMIT 1
+            ];
+            Id resolvedCalendarId = resolveWritableTeamCalendarId(
+                request.eventData != null ? parseId(request.eventData.calendarId) : template.Calendar__c,
+                template.OwnerId,
+                isSecurityAdmin
+            );
+            if (!existing.isEmpty()) {
+                enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
+                Calendar_Event__c updatedEx = buildCalendarEventRow(
+                    request.eventData, existing[0].Id, resolvedCalendarId, template.OwnerId
+                );
+                updatedEx.Is_Recurrence_Exception__c = true;
+                updatedEx.Recurrence_Parent__c = templateId;
+                updatedEx.Occurrence_Date__c = request.occurrenceDate;
+                updatedEx.Recurrence_Rule__c = null;
+                update updatedEx;
+                return existing[0].Id;
+            } else {
+                enforceCrudAccess(Calendar_Event__c.SObjectType, 'create');
+                Calendar_Event__c exRow = buildCalendarEventRow(
+                    request.eventData, null, resolvedCalendarId, template.OwnerId
+                );
+                exRow.Is_Recurrence_Exception__c = true;
+                exRow.Recurrence_Parent__c = templateId;
+                exRow.Occurrence_Date__c = request.occurrenceDate;
+                exRow.Recurrence_Rule__c = null;
+                insert exRow;
+                return exRow.Id;
+            }
+
+        } else if (request.scope == 'thisAndFollowing') {
+            if (String.isBlank(request.occurrenceDate)) {
+                throw new AuraHandledException('Occurrence date is required for this scope.');
+            }
+            enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
+            enforceCrudAccess(Calendar_Event__c.SObjectType, 'create');
+
+            Date splitDate = Date.valueOf(request.occurrenceDate);
+            Date untilDate = splitDate.addDays(-1);
+            String truncatedRRule = truncateRRuleUntil(template.Recurrence_Rule__c, untilDate);
+            update new Calendar_Event__c(Id = templateId, Recurrence_Rule__c = truncatedRRule);
+
+            List<Calendar_Event__c> futureExceptions = [
+                SELECT Id
+                FROM Calendar_Event__c
+                WHERE Is_Recurrence_Exception__c = true
+                AND Recurrence_Parent__c = :templateId
+                AND Occurrence_Date__c >= :request.occurrenceDate
+            ];
+            if (!futureExceptions.isEmpty()) {
+                enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
+                delete futureExceptions;
+            }
+
+            Id resolvedCalendarId = resolveWritableTeamCalendarId(
+                request.eventData != null ? parseId(request.eventData.calendarId) : template.Calendar__c,
+                template.OwnerId,
+                isSecurityAdmin
+            );
+            Calendar_Event__c newTemplate = buildCalendarEventRow(
+                request.eventData, null, resolvedCalendarId, template.OwnerId
+            );
+            if (request.eventData == null || String.isBlank(request.eventData.recurrenceRule)) {
+                newTemplate.Recurrence_Rule__c = template.Recurrence_Rule__c;
+            }
+            insert newTemplate;
+            return newTemplate.Id;
+        }
+
+        throw new AuraHandledException('Unrecognised scope: ' + request.scope);
+    }
+
+    /**
+     * Delete a recurring event occurrence.
+     * scope='this'             — insert a tombstone exception (Status__c='Deleted').
+     * scope='thisAndFollowing' — truncate series before occurrenceDate; delete future exceptions.
+     * scope='all'              — delete template and all exception records.
+     */
+    @AuraEnabled
+    public static Id deleteRecurringCalendarEvent(
+        String recordId, String scope, String occurrenceDate
+    ) {
+        if (String.isBlank(recordId)) {
+            throw new AuraHandledException('A recurring event id is required.');
+        }
+        if (String.isBlank(scope)) {
+            throw new AuraHandledException('A scope is required (this | thisAndFollowing | all).');
+        }
+
+        Id templateId = parseId(recordId);
+        Id runningUserId = UserInfo.getUserId();
+        Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
+
+        List<Calendar_Event__c> templateRows = [
+            SELECT Id, OwnerId, Calendar__c, Recurrence_Rule__c, Start__c, Name
+            FROM Calendar_Event__c
+            WHERE Id = :templateId
+            LIMIT 1
+        ];
+        if (templateRows.isEmpty()) {
+            throw new AuraHandledException('Recurring event template not found.');
+        }
+        Calendar_Event__c template = templateRows[0];
+        enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, template.OwnerId);
+
+        if (scope == 'all') {
+            enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
+            List<Calendar_Event__c> allExceptions = [
+                SELECT Id FROM Calendar_Event__c WHERE Recurrence_Parent__c = :templateId
+            ];
+            if (!allExceptions.isEmpty()) {
+                delete allExceptions;
+            }
+            delete template;
+            return templateId;
+
+        } else if (scope == 'this') {
+            if (String.isBlank(occurrenceDate)) {
+                throw new AuraHandledException('Occurrence date is required for this scope.');
+            }
+            List<Calendar_Event__c> existing = [
+                SELECT Id, Status__c
+                FROM Calendar_Event__c
+                WHERE Is_Recurrence_Exception__c = true
+                AND Recurrence_Parent__c = :templateId
+                AND Occurrence_Date__c = :occurrenceDate
+                LIMIT 1
+            ];
+            if (!existing.isEmpty()) {
+                if (existing[0].Status__c == 'Deleted') {
+                    return templateId; // already tombstoned
+                }
+                enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
+                update new Calendar_Event__c(Id = existing[0].Id, Status__c = 'Deleted');
+            } else {
+                enforceCrudAccess(Calendar_Event__c.SObjectType, 'create');
+                insert new Calendar_Event__c(
+                    Name = template.Name != null ? template.Name : 'Deleted Occurrence',
+                    Calendar__c = template.Calendar__c,
+                    OwnerId = template.OwnerId,
+                    Is_Recurrence_Exception__c = true,
+                    Recurrence_Parent__c = templateId,
+                    Occurrence_Date__c = occurrenceDate,
+                    Status__c = 'Deleted',
+                    Start__c = template.Start__c
+                );
+            }
+            return templateId;
+
+        } else if (scope == 'thisAndFollowing') {
+            if (String.isBlank(occurrenceDate)) {
+                throw new AuraHandledException('Occurrence date is required for this scope.');
+            }
+            enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
+            Date splitDate = Date.valueOf(occurrenceDate);
+            Date untilDate = splitDate.addDays(-1);
+            update new Calendar_Event__c(
+                Id = templateId,
+                Recurrence_Rule__c = truncateRRuleUntil(template.Recurrence_Rule__c, untilDate)
+            );
+            List<Calendar_Event__c> futureExceptions = [
+                SELECT Id FROM Calendar_Event__c
+                WHERE Is_Recurrence_Exception__c = true
+                AND Recurrence_Parent__c = :templateId
+                AND Occurrence_Date__c >= :occurrenceDate
+            ];
+            if (!futureExceptions.isEmpty()) {
+                enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
+                delete futureExceptions;
+            }
+            return templateId;
+        }
+
+        throw new AuraHandledException('Unrecognised scope: ' + scope);
+    }
+
+    /**
+     * Truncates an RRULE by replacing/inserting UNTIL=<date> and removing any COUNT.
+     * e.g., 'FREQ=WEEKLY;BYDAY=MO,WE;COUNT=10' with until=2026-04-17
+     *    → 'FREQ=WEEKLY;BYDAY=MO,WE;UNTIL=20260417'
+     */
+    @TestVisible
+    private static String truncateRRuleUntil(String rrule, Date untilDate) {
+        if (String.isBlank(rrule)) {
+            return rrule;
+        }
+        String untilStr = String.valueOf(untilDate.year())
+            + String.valueOf(untilDate.month()).leftPad(2, '0')
+            + String.valueOf(untilDate.day()).leftPad(2, '0');
+        List<String> parts = new List<String>();
+        for (String part : rrule.trim().split(';')) {
+            if (String.isBlank(part)) { continue; }
+            Integer eqIdx = part.indexOf('=');
+            if (eqIdx >= 0) {
+                String key = part.substring(0, eqIdx).trim().toUpperCase();
+                if (key == 'COUNT' || key == 'UNTIL') { continue; }
+            }
+            parts.add(part);
+        }
+        parts.add('UNTIL=' + untilStr);
+        return String.join(parts, ';');
     }
 }

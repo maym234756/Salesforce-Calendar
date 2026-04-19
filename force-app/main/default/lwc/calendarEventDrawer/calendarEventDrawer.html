@@ -74,6 +74,12 @@
                                             <div class="drawer-label">Notes</div>
                                             <div>{eventViewNotesValue}</div>
                                         </div>
+
+                                        <template if:true={isRecurringEvent}>
+                                            <div class="slds-col slds-size_1-of-1 slds-m-top_small">
+                                                <span class="slds-badge slds-badge_inverse">{recurringBadgeLabel}</span>
+                                            </div>
+                                        </template>
                                     </div>
                                 </template>
 
@@ -362,6 +368,30 @@
                 <footer class="slds-modal__footer">
                     <button type="button" class="slds-button slds-button_neutral" onclick={handleCancelDelete}>Cancel</button>
                     <button type="button" class="slds-button slds-button_destructive" onclick={handleConfirmDelete}>Delete</button>
+                </footer>
+            </div>
+        </section>
+        <div class="slds-backdrop slds-backdrop_open" style="z-index:9099;"></div>
+    </template>
+
+    <template if:true={showRecurrenceScopeModal}>
+        <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="drawer-recurring-scope-heading" class="slds-modal slds-fade-in-open" style="z-index:9100;">
+            <div class="slds-modal__container" style="max-width:28rem;">
+                <header class="slds-modal__header">
+                    <h2 id="drawer-recurring-scope-heading" class="slds-text-heading_medium">{recurrenceScopeModalTitle}</h2>
+                </header>
+                <div class="slds-modal__content slds-p-around_medium">
+                    <p class="slds-m-bottom_small">Which events do you want to change?</p>
+                    <lightning-combobox
+                        label="Apply to"
+                        value={selectedRecurringScope}
+                        options={recurringScopeOptions}
+                        onchange={handleRecurringScopeChange}
+                    ></lightning-combobox>
+                </div>
+                <footer class="slds-modal__footer">
+                    <button type="button" class="slds-button slds-button_neutral" onclick={handleCancelRecurringScope}>Cancel</button>
+                    <button type="button" class="slds-button slds-button_brand" onclick={handleConfirmRecurringScope}>{recurrenceScopeConfirmLabel}</button>
                 </footer>
             </div>
         </section>

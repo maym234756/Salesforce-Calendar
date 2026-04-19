@@ -24,10 +24,42 @@ import {
     buildCalendarWeeks,
     buildAgendaGroups,
     buildRangeLabel,
-    getVisibleRange
+    getVisibleRange,
+    buildDayViewData
 } from 'c/calendarUtils';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
 import USER_ID from '@salesforce/user/Id';
+import {
+    createDefaultLayoutPreference,
+    normalizeLayoutPreference,
+    createDefaultGoogleConnection,
+    createContextLink,
+    dedupeContextLinks,
+    isInContractStage
+} from './calendarBoardHelpers';
+import {
+    getDefinitionObjectApiName,
+    buildCalendarViewOptionalFields,
+    extractListRecords,
+    mapCalendarViewRecord,
+    buildCalendarViewContextLinks,
+    buildCalendarViewHoverDetails,
+    dedupeNormalizedEvents,
+    toTime
+} from './calendarViewMapper';
+import {
+    buildEventContextMenuStyle,
+    buildHoverPreviewStyle,
+    buildMovedCalendarEventRequest,
+    formatMoveTargetLabel,
+    resolveNativeContextMenuSource as resolveNativeContextMenuSourceFn,
+    buildContextMenuSourceFromDetail as buildContextMenuSourceFromDetailFn,
+    resolveContextLinksForRecord,
+    buildEventContextMenuItems as buildEventContextMenuItemsFn,
+    buildHoverTimeLabel,
+    buildHoveredEventPreview as buildHoveredEventPreviewFn,
+    resolveRecordObjectApiName as resolveRecordObjectApiNameFn
+} from './calendarContextMenuHelpers';
 
 const RELATED_RECORD_CONTEXT_OBJECTS = new Set(['Marine__Boat__c', 'Appraisal__c', 'Marine__Deal__c']);
 
@@ -52,6 +84,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     selectedRecordContextId = null;
     selectedRecordCanEdit = true;
     selectedRecordCanDelete = true;
+    selectedRecordOccurrenceDate = null;
+    selectedRecordIsRecurring = false;
     defaultStart = null;
     defaultEnd = null;
     activeEventMenu = null;
@@ -61,6 +95,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     events = [];
     weeks = [];
     agendaGroups = [];
+    dayViewData = null;
     teamLoadRows = [];
     conflictRows = [];
 
@@ -90,6 +125,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     viewOptions = [
         { label: 'Month', value: 'month' },
         { label: 'Week', value: 'week' },
+        { label: 'Day', value: 'day' },
         { label: 'Agenda', value: 'agenda' },
         { label: 'Team Load', value: 'teamLoad' },
         { label: 'Conflicts', value: 'conflicts' }
@@ -268,6 +304,10 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         return this.currentView === 'month' || this.currentView === 'week';
     }
 
+    get isDayView() {
+        return this.currentView === 'day';
+    }
+
     get isWeekView() {
         return this.currentView === 'week';
     }
@@ -319,7 +359,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     get isTaskCalendarSelection() {
-        return this.getDefinitionObjectApiName(this.selectedCalendarDefinition) === 'Task';
+        return getDefinitionObjectApiName(this.selectedCalendarDefinition) === 'Task';
     }
 
     get calendarViewWireObjectApiName() {
@@ -801,7 +841,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             )
             .map((definition) => ({
                 ...definition,
-                optionalFieldsCsv: this.buildCalendarViewOptionalFields(definition).join(',')
+                optionalFieldsCsv: buildCalendarViewOptionalFields(definition).join(',')
             }));
     }
 
@@ -1362,7 +1402,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     handlePrev() {
         const nextDate = new Date(this.currentDate);
 
-        if (this.currentView === 'week') {
+        if (this.currentView === 'day') {
+            nextDate.setDate(nextDate.getDate() - 1);
+        } else if (this.currentView === 'week') {
             nextDate.setDate(nextDate.getDate() - 7);
         } else {
             nextDate.setMonth(nextDate.getMonth() - 1);
@@ -1375,7 +1417,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     handleNext() {
         const nextDate = new Date(this.currentDate);
 
-        if (this.currentView === 'week') {
+        if (this.currentView === 'day') {
+            nextDate.setDate(nextDate.getDate() + 1);
+        } else if (this.currentView === 'week') {
             nextDate.setDate(nextDate.getDate() + 7);
         } else {
             nextDate.setMonth(nextDate.getMonth() + 1);
@@ -1496,7 +1540,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
-        const requestPayload = this.buildMovedCalendarEventRequest(eventRecord, targetDateKey);
+        const requestPayload = buildMovedCalendarEventRequest(eventRecord, targetDateKey);
         if (!requestPayload) {
             this.showToast('Move Event Error', 'The calendar event could not be moved.', 'error');
             return;
@@ -1509,7 +1553,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 requestJson: JSON.stringify(requestPayload)
             });
             await this.loadEvents();
-            this.showToast('Event Moved', `${eventRecord.name} was moved to ${this.formatMoveTargetLabel(targetDateKey)}.`, 'success');
+            this.showToast('Event Moved', `${eventRecord.name} was moved to ${formatMoveTargetLabel(targetDateKey)}.`, 'success');
         } catch (error) {
             this.showToast('Move Event Error', this.extractErrorMessage(error), 'error');
         } finally {
@@ -1537,6 +1581,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.selectedRecordContextId = recordContextId;
         this.selectedRecordCanEdit = event.detail?.canEdit !== false;
         this.selectedRecordCanDelete = event.detail?.canDelete === true;
+        this.selectedRecordOccurrenceDate = event.detail?.occurrenceDate || null;
+        this.selectedRecordIsRecurring = event.detail?.isRecurring === true;
         this.showDrawer = Boolean(this.selectedRecordId);
     }
 
@@ -1545,7 +1591,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         const eventRecord = this.findEventRecord(source?.recordId, source?.recordContextId);
 
         this.hoveredQuickActionRecord = source?.canContextMenu ? source : null;
-        this.hoveredEventPreview = this.buildHoveredEventPreview(
+        this.hoveredEventPreview = buildHoveredEventPreviewFn(
             source,
             eventRecord,
             event.detail?.clientX,
@@ -1588,7 +1634,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             recordName: source.recordName,
             recordObjectApiName: source.recordObjectApiName,
             recordContextId: source.recordContextId,
-            style: this.buildEventContextMenuStyle(event.clientX, event.clientY)
+            style: buildEventContextMenuStyle(event.clientX, event.clientY)
         };
     }
 
@@ -1644,7 +1690,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         }
 
         const eventRecord = this.findEventRecord(source.recordId, source.recordContextId);
-        const items = this.buildEventContextMenuItems(source, eventRecord);
+        const items = buildEventContextMenuItemsFn(source, eventRecord);
         if (!items.length) {
             this.closeEventContextMenu();
             return;
@@ -1657,7 +1703,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             recordObjectApiName: source.recordObjectApiName,
             recordContextId: source.recordContextId,
             items,
-            style: this.buildEventContextMenuStyle(event.clientX, event.clientY, items.length)
+            style: buildEventContextMenuStyle(event.clientX, event.clientY, items.length)
         };
     }
 
@@ -1812,126 +1858,11 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         return objectApiName === 'Calendar_Event__c';
     }
 
-    buildMovedCalendarEventRequest(eventRecord, targetDateKey) {
-        const originalStart = new Date(eventRecord.start);
-        const originalEnd = new Date(eventRecord.endDateTime || eventRecord.start);
-
-        if (Number.isNaN(originalStart.getTime()) || Number.isNaN(originalEnd.getTime())) {
-            return null;
-        }
-
-        const durationMs = Math.max(
-            originalEnd.getTime() - originalStart.getTime(),
-            eventRecord.allDay ? (23 * 60 + 59) * 60 * 1000 : 60 * 60 * 1000
-        );
-
-        const nextStart = new Date(`${targetDateKey}T00:00:00`);
-        if (Number.isNaN(nextStart.getTime())) {
-            return null;
-        }
-
-        if (eventRecord.allDay) {
-            nextStart.setHours(0, 0, 0, 0);
-        } else {
-            nextStart.setHours(
-                originalStart.getHours(),
-                originalStart.getMinutes(),
-                originalStart.getSeconds(),
-                originalStart.getMilliseconds()
-            );
-        }
-
-        const nextEnd = new Date(nextStart.getTime() + durationMs);
-
-        return {
-            recordId: eventRecord.id,
-            calendarId: eventRecord.calendarId,
-            name: eventRecord.name,
-            startValue: nextStart.toISOString(),
-            endValue: nextEnd.toISOString(),
-            allDay: eventRecord.allDay === true,
-            status: eventRecord.status,
-            notes: eventRecord.notes
-        };
-    }
-
-    formatMoveTargetLabel(targetDateKey) {
-        const targetDate = new Date(`${targetDateKey}T12:00:00`);
-        if (Number.isNaN(targetDate.getTime())) {
-            return targetDateKey;
-        }
-
-        return targetDate.toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-    }
-
     resolveNativeContextMenuSource(event) {
-        const path = typeof event.composedPath === 'function' ? event.composedPath() : [];
-        const sourceNode = path.find(
-            (node) =>
-                node &&
-                node.dataset &&
-                node.dataset.id &&
-                node.dataset.canContextMenu === 'true'
+        return resolveNativeContextMenuSourceFn(
+            event,
+            (contextId) => this.resolveRecordObjectApiName(contextId)
         );
-
-        if (!sourceNode) {
-            return null;
-        }
-
-        return {
-            recordId: sourceNode.dataset.id,
-            recordName: sourceNode.dataset.name || '',
-            recordObjectApiName:
-                sourceNode.dataset.recordObjectApiName ||
-                this.resolveRecordObjectApiName(sourceNode.dataset.recordContextId || null),
-            recordContextId: sourceNode.dataset.recordContextId || null,
-            canDelete: sourceNode.dataset.canDelete === 'true',
-            canContextMenu: sourceNode.dataset.canContextMenu === 'true'
-        };
-    }
-
-    buildEventContextMenuStyle(clientX, clientY, itemCount = 1) {
-        const menuWidth = 216;
-        const menuHeight = 64 + Math.max(itemCount, 1) * 48;
-        const margin = 12;
-        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
-        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
-        const nextLeft = Math.min(
-            Math.max(Number(clientX) || margin, margin),
-            Math.max(viewportWidth - menuWidth - margin, margin)
-        );
-        const nextTop = Math.min(
-            Math.max(Number(clientY) || margin, margin),
-            Math.max(viewportHeight - menuHeight - margin, margin)
-        );
-
-        return `left:${nextLeft}px; top:${nextTop}px;`;
-    }
-
-    buildHoverPreviewStyle(clientX, clientY) {
-        const previewWidth = 260;
-        const previewHeight = 148;
-        const margin = 12;
-        const horizontalOffset = 14;
-        const verticalOffset = 18;
-        const viewportWidth = typeof window !== 'undefined' ? window.innerWidth : 1280;
-        const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 720;
-        const requestedLeft = (Number(clientX) || margin) + horizontalOffset;
-        const requestedTop = (Number(clientY) || margin) + verticalOffset;
-        const nextLeft = Math.min(
-            Math.max(requestedLeft, margin),
-            Math.max(viewportWidth - previewWidth - margin, margin)
-        );
-        const nextTop = Math.min(
-            Math.max(requestedTop, margin),
-            Math.max(viewportHeight - previewHeight - margin, margin)
-        );
-
-        return `left:${nextLeft}px; top:${nextTop}px;`;
     }
 
     async handleCloseDrawer() {
@@ -1941,6 +1872,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.selectedRecordContextId = null;
         this.selectedRecordCanEdit = true;
         this.selectedRecordCanDelete = true;
+        this.selectedRecordOccurrenceDate = null;
+        this.selectedRecordIsRecurring = false;
         await this.loadEvents();
     }
 
@@ -2010,10 +1943,6 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         return `${yearValue}-${monthValue}-${dayValue}`;
     }
 
-    getDefinitionObjectApiName(definition) {
-        return definition?.listViewObjectApiName || definition?.sobjectType || null;
-    }
-
     findEventRecord(recordId, recordContextId = null) {
         if (!recordId) {
             return null;
@@ -2029,145 +1958,14 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     buildContextMenuSourceFromDetail(detail) {
-        const recordId = detail?.recordId || null;
-        if (!recordId) {
-            return null;
-        }
-
-        return {
-            recordId,
-            recordName: detail?.recordName || '',
-            recordObjectApiName:
-                detail?.recordObjectApiName || this.resolveRecordObjectApiName(detail?.recordContextId),
-            recordContextId: detail?.recordContextId || null,
-            canDelete: detail?.canDelete === true,
-            canContextMenu: detail?.canContextMenu !== false
-        };
-    }
-
-    buildEventContextMenuItems(source, eventRecord) {
-        const items = [];
-        const contextLinks = this.resolveContextLinksForRecord(source, eventRecord);
-
-        contextLinks.forEach((link) => {
-            items.push({
-                key: `open-${link.key}`,
-                actionType: 'open-record',
-                label: link.label,
-                description: link.recordName || '',
-                recordId: link.recordId,
-                objectApiName: link.objectApiName,
-                className: 'event-context-menu__item'
-            });
-        });
-
-        if (
-            source.canDelete === true &&
-            (source.recordObjectApiName === 'Task' || source.recordObjectApiName === 'Calendar_Event__c')
-        ) {
-            items.push({
-                key: 'delete-record',
-                actionType: 'delete',
-                label: source.recordObjectApiName === 'Task' ? 'Delete Task' : 'Delete Event',
-                description: '',
-                recordId: source.recordId,
-                objectApiName: source.recordObjectApiName,
-                className: 'event-context-menu__item event-context-menu__item--destructive'
-            });
-        }
-
-        return items;
-    }
-
-    resolveContextLinksForRecord(source, eventRecord) {
-        const links = Array.isArray(eventRecord?.contextLinks) ? [...eventRecord.contextLinks] : [];
-
-        if (!links.length && source?.recordObjectApiName === 'Marine__Boat__c') {
-            links.push(createContextLink('unit', 'Unit', source.recordId, 'Marine__Boat__c', source.recordName));
-        }
-
-        return dedupeContextLinks(links);
-    }
-
-    buildHoveredEventPreview(source, eventRecord, clientX, clientY) {
-        const title = source?.recordName || eventRecord?.name || '';
-        if (!title) {
-            return null;
-        }
-
-        const lines = [];
-        const timeLabel = this.buildHoverTimeLabel(eventRecord);
-
-        if (eventRecord?.calendarName) {
-            lines.push(eventRecord.calendarName);
-        }
-
-        if (timeLabel) {
-            lines.push(timeLabel);
-        }
-
-        if (eventRecord?.status && eventRecord.status !== 'Calendar View') {
-            lines.push(`Status: ${eventRecord.status}`);
-        }
-
-        (Array.isArray(eventRecord?.hoverDetails) ? eventRecord.hoverDetails : []).forEach((line) => {
-            if (line && !lines.includes(line)) {
-                lines.push(line);
-            }
-        });
-
-        return {
-            title,
-            lines: lines.map((text, idx) => ({ key: `line-${idx}`, text })),
-            style: this.buildHoverPreviewStyle(clientX, clientY)
-        };
-    }
-
-    buildHoverTimeLabel(eventRecord) {
-        if (!eventRecord?.start) {
-            return '';
-        }
-
-        const start = new Date(eventRecord.start);
-        const end = eventRecord.endDateTime ? new Date(eventRecord.endDateTime) : null;
-        if (Number.isNaN(start.getTime())) {
-            return '';
-        }
-
-        const dateLabel = start.toLocaleDateString(undefined, {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric'
-        });
-
-        if (eventRecord.allDay) {
-            return `${dateLabel} • All Day`;
-        }
-
-        const startLabel = start.toLocaleTimeString([], {
-            hour: 'numeric',
-            minute: '2-digit'
-        });
-
-        if (!end || Number.isNaN(end.getTime())) {
-            return `${dateLabel} • ${startLabel}`;
-        }
-
-        const endLabel = end.toLocaleTimeString([], {
-            hour: 'numeric',
-            minute: '2-digit'
-        });
-
-        return `${dateLabel} • ${startLabel} - ${endLabel}`;
+        return buildContextMenuSourceFromDetailFn(
+            detail,
+            (contextId) => this.resolveRecordObjectApiName(contextId)
+        );
     }
 
     resolveRecordObjectApiName(recordContextId) {
-        if (!recordContextId) {
-            return 'Calendar_Event__c';
-        }
-
-        const definition = (this.calendarDefinitions || []).find((row) => row.id === recordContextId);
-        return this.getDefinitionObjectApiName(definition) || 'Calendar_Event__c';
+        return resolveRecordObjectApiNameFn(recordContextId, this.calendarDefinitions);
     }
 
     async loadGoogleConnectionState() {
@@ -2644,12 +2442,12 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 return;
             }
 
-            const rawRecords = this.extractListRecords(payload);
+            const rawRecords = extractListRecords(payload);
 
             merged.push(
                 ...(rawRecords || [])
                     .map((record) =>
-                        this.mapCalendarViewRecord(
+                        mapCalendarViewRecord(
                             record,
                             definition,
                             startBoundary,
@@ -2661,58 +2459,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             );
         });
 
-        return this.dedupeNormalizedEvents(merged);
-    }
-
-    buildCalendarViewOptionalFields(definition) {
-        const objectApiName = definition?.listViewObjectApiName || definition?.sobjectType;
-
-        if (!objectApiName) {
-            return [];
-        }
-
-        const fieldNames = [
-            definition.startField,
-            definition.endField,
-            definition.displayField,
-            'OwnerId',
-            'Name'
-        ].filter(Boolean);
-
-        const extraFieldsByObject = {
-            Marine__Boat__c: ['Appraisal__c', 'Deal__c', 'In_Contract__c', 'Unit_Deal_Stage__c', 'Stage__c', 'Marine__Stock_Number__c'],
-            Appraisal__c: ['Boat__c', 'Deal__c', 'Deal_Stage__c', 'Stage__c'],
-            Marine__Deal__c: ['Marine__Boat__c', 'Marine__Stage__c', 'Marine__Boat__r.Appraisal__c']
-        };
-
-        fieldNames.push(...(extraFieldsByObject[objectApiName] || []));
-
-        return [...new Set(fieldNames.map((fieldName) => `${objectApiName}.${fieldName}`))];
-    }
-
-    dedupeNormalizedEvents(events) {
-        const rowsByKey = new Map();
-
-        (events || []).forEach((row) => {
-            const key =
-                `${row.calendarId || 'none'}::` +
-                `${row.id || row.externalEventId || row.name || 'row'}`;
-
-            if (!rowsByKey.has(key)) {
-                rowsByKey.set(key, row);
-            }
-        });
-
-        return Array.from(rowsByKey.values()).sort((left, right) => {
-            const leftTime = this.toTime(left.start);
-            const rightTime = this.toTime(right.start);
-
-            if (leftTime !== rightTime) {
-                return leftTime - rightTime;
-            }
-
-            return String(left.name || '').localeCompare(String(right.name || ''));
-        });
+        return dedupeNormalizedEvents(merged);
     }
 
     async loadEvents() {
@@ -2760,12 +2507,12 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                     return;
                 }
 
-                nextEvents = this.dedupeNormalizedEvents([
+                nextEvents = dedupeNormalizedEvents([
                     ...nextEvents,
                     ...calendarViewEvents
                 ]);
             } else {
-                nextEvents = this.dedupeNormalizedEvents(nextEvents);
+                nextEvents = dedupeNormalizedEvents(nextEvents);
             }
 
             if (taskDefinitions.length) {
@@ -2778,7 +2525,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                     return;
                 }
 
-                nextEvents = this.dedupeNormalizedEvents([
+                nextEvents = dedupeNormalizedEvents([
                     ...nextEvents,
                     ...taskEvents
                 ]);
@@ -2798,6 +2545,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 this.agendaGroups = [];
                 this.teamLoadRows = [];
                 this.conflictRows = [];
+                this.dayViewData = null;
                 this.error = this.extractErrorMessage(error);
 
                 // eslint-disable-next-line no-console
@@ -2822,7 +2570,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
     applyCalendarViewData(payload) {
         const visibleRange = getVisibleRange(this.currentDate, this.currentView);
-        const rawRecords = this.extractListRecords(payload);
+        const rawRecords = extractListRecords(payload);
 
         const startBoundary = new Date(`${visibleRange.startDate}T00:00:00`);
         const endBoundaryExclusive = new Date(`${visibleRange.endDate}T00:00:00`);
@@ -2830,7 +2578,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
         this.events = (rawRecords || [])
             .map((record) =>
-                this.mapCalendarViewRecord(
+                mapCalendarViewRecord(
                     record,
                     this.selectedCalendarDefinition,
                     startBoundary,
@@ -2845,326 +2593,17 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.isLoading = false;
     }
 
-    extractListRecords(payload) {
-        if (Array.isArray(payload?.records)) {
-            return payload.records;
-        }
-
-        if (Array.isArray(payload?.records?.records)) {
-            return payload.records.records;
-        }
-
-        if (Array.isArray(payload?.items)) {
-            return payload.items;
-        }
-
-        if (Array.isArray(payload?.records?.items)) {
-            return payload.records.items;
-        }
-
-        return [];
-    }
-
-    mapCalendarViewRecord(record, calendarDefinition, startBoundary, endBoundaryExclusive) {
-        const startRaw = this.getUiFieldValue(record, calendarDefinition.startField);
-        if (!startRaw) {
-            return null;
-        }
-
-        const startValue = this.toUiDateTimeValue(startRaw);
-        if (!startValue || Number.isNaN(startValue.getTime())) {
-            return null;
-        }
-
-        const endRaw = calendarDefinition.endField
-            ? this.getUiFieldValue(record, calendarDefinition.endField)
-            : null;
-        const endValue = endRaw ? this.toUiDateTimeValue(endRaw) : null;
-
-        if (startValue >= endBoundaryExclusive) {
-            return null;
-        }
-
-        if (endValue && endValue < startBoundary) {
-            return null;
-        }
-
-        if (!endValue && startValue < startBoundary) {
-            return null;
-        }
-
-        const titleField = calendarDefinition.displayField || 'Name';
-
-        const preferredDisplayValue = this.getUiFieldDisplayValue(record, titleField);
-        const preferredRawValue = this.getUiFieldValue(record, titleField);
-
-        const fallbackNameDisplay = this.getUiFieldDisplayValue(record, 'Name');
-        const fallbackNameValue = this.getUiFieldValue(record, 'Name');
-
-        const titleValue =
-            preferredDisplayValue ||
-            (
-                preferredRawValue &&
-                !/^[a-zA-Z0-9]{15,18}$/.test(String(preferredRawValue))
-                    ? preferredRawValue
-                    : null
-            ) ||
-            fallbackNameDisplay ||
-            fallbackNameValue ||
-            'Untitled';
-
-        const isDateOnlyStart = /^\d{4}-\d{2}-\d{2}$/.test(String(startRaw));
-        const recordObjectApiName = this.getDefinitionObjectApiName(calendarDefinition);
-
-        return {
-            id: record.id,
-            name: String(titleValue),
-            ownerId: this.getUiFieldValue(record, 'OwnerId'),
-            ownerName: this.getUiFieldDisplayValue(record, 'OwnerId'),
-            start: this.formatUiDateForBoard(startRaw),
-            endDateTime: endRaw ? this.formatUiDateForBoard(endRaw) : null,
-            allDay: Boolean(isDateOnlyStart && !calendarDefinition.endField),
-            status: 'Calendar View',
-            notes: `${calendarDefinition.name} • ${calendarDefinition.sobjectType}`,
-            calendarId: calendarDefinition.id,
-            calendarName: calendarDefinition.name,
-            calendarColor: calendarDefinition.color || '#0176d3',
-            externalEventId: null,
-            syncStatus: null,
-            syncError: null,
-            lastSyncedAt: null,
-            recordObjectApiName,
-            recordContextId: calendarDefinition.id,
-            canEdit: calendarDefinition?.canEdit === true,
-            canDelete: false,
-            contextLinks: this.buildCalendarViewContextLinks(record, recordObjectApiName),
-            hoverDetails: this.buildCalendarViewHoverDetails(record, calendarDefinition, recordObjectApiName)
-        };
-    }
-
-    buildCalendarViewContextLinks(record, objectApiName) {
-        switch (objectApiName) {
-        case 'Marine__Boat__c':
-            return this.buildBoatContextLinks(record);
-        case 'Appraisal__c':
-            return this.buildAppraisalContextLinks(record);
-        case 'Marine__Deal__c':
-            return this.buildDealContextLinks(record);
-        default:
-            return [];
-        }
-    }
-
-    buildBoatContextLinks(record) {
-        const links = [
-            createContextLink('unit', 'Unit', record.id, 'Marine__Boat__c', this.getUiFieldDisplayValue(record, 'Name') || this.getUiFieldValue(record, 'Name') || 'Unit')
-        ];
-
-        const appraisalId = this.getUiFieldValue(record, 'Appraisal__c');
-        if (appraisalId) {
-            links.push(
-                createContextLink(
-                    'appraisal',
-                    'Appraisal',
-                    appraisalId,
-                    'Appraisal__c',
-                    this.getUiFieldDisplayValue(record, 'Appraisal__c') || 'Appraisal'
-                )
-            );
-        }
-
-        const dealStage = this.getUiFieldDisplayValue(record, 'Unit_Deal_Stage__c') || this.getUiFieldValue(record, 'Unit_Deal_Stage__c');
-        const hasInContractDeal = this.getUiFieldValue(record, 'In_Contract__c') === true || isInContractStage(dealStage);
-        const dealId = this.getUiFieldValue(record, 'Deal__c');
-        if (dealId && hasInContractDeal) {
-            links.push(
-                createContextLink(
-                    'sales-deal',
-                    'Sales Deal',
-                    dealId,
-                    'Marine__Deal__c',
-                    this.getUiFieldDisplayValue(record, 'Deal__c') || 'Sales Deal'
-                )
-            );
-        }
-
-        return links;
-    }
-
-    buildAppraisalContextLinks(record) {
-        const links = [];
-
-        const boatId = this.getUiFieldValue(record, 'Boat__c');
-        if (boatId) {
-            links.push(
-                createContextLink(
-                    'unit',
-                    'Unit',
-                    boatId,
-                    'Marine__Boat__c',
-                    this.getUiFieldDisplayValue(record, 'Boat__c') || 'Unit'
-                )
-            );
-        }
-
-        links.push(
-            createContextLink(
-                'appraisal',
-                'Appraisal',
-                record.id,
-                'Appraisal__c',
-                this.getUiFieldDisplayValue(record, 'Name') || this.getUiFieldValue(record, 'Name') || 'Appraisal'
-            )
-        );
-
-        const dealId = this.getUiFieldValue(record, 'Deal__c');
-        const dealStage = this.getUiFieldDisplayValue(record, 'Deal_Stage__c') || this.getUiFieldValue(record, 'Deal_Stage__c');
-        if (dealId && isInContractStage(dealStage)) {
-            links.push(
-                createContextLink(
-                    'sales-deal',
-                    'Sales Deal',
-                    dealId,
-                    'Marine__Deal__c',
-                    this.getUiFieldDisplayValue(record, 'Deal__c') || 'Sales Deal'
-                )
-            );
-        }
-
-        return links;
-    }
-
-    buildDealContextLinks(record) {
-        const links = [];
-
-        const boatId = this.getUiFieldValue(record, 'Marine__Boat__c');
-        if (boatId) {
-            links.push(
-                createContextLink(
-                    'unit',
-                    'Unit',
-                    boatId,
-                    'Marine__Boat__c',
-                    this.getUiFieldDisplayValue(record, 'Marine__Boat__c') || 'Unit'
-                )
-            );
-        }
-
-        const appraisalId = this.getUiFieldValue(record, 'Marine__Boat__r.Appraisal__c');
-        if (appraisalId) {
-            links.push(
-                createContextLink(
-                    'appraisal',
-                    'Appraisal',
-                    appraisalId,
-                    'Appraisal__c',
-                    this.getUiFieldDisplayValue(record, 'Marine__Boat__r.Appraisal__c') || 'Appraisal'
-                )
-            );
-        }
-
-        const dealStage = this.getUiFieldDisplayValue(record, 'Marine__Stage__c') || this.getUiFieldValue(record, 'Marine__Stage__c');
-        if (isInContractStage(dealStage)) {
-            links.push(
-                createContextLink(
-                    'sales-deal',
-                    'Sales Deal',
-                    record.id,
-                    'Marine__Deal__c',
-                    this.getUiFieldDisplayValue(record, 'Name') || this.getUiFieldValue(record, 'Name') || 'Sales Deal'
-                )
-            );
-        }
-
-        return links;
-    }
-
-    buildCalendarViewHoverDetails(record, calendarDefinition, objectApiName) {
-        const lines = [];
-
-        if (calendarDefinition?.name) {
-            lines.push(calendarDefinition.name);
-        }
-
-        if (objectApiName === 'Marine__Boat__c') {
-            const stockNumber = this.getUiFieldDisplayValue(record, 'Marine__Stock_Number__c') || this.getUiFieldValue(record, 'Marine__Stock_Number__c');
-            const stage = this.getUiFieldDisplayValue(record, 'Stage__c') || this.getUiFieldValue(record, 'Stage__c');
-
-            if (stockNumber) {
-                lines.push(`Stock #: ${stockNumber}`);
-            }
-
-            if (stage) {
-                lines.push(`Stage: ${stage}`);
-            }
-        }
-
-        if (objectApiName === 'Appraisal__c') {
-            const boatLabel = this.getUiFieldDisplayValue(record, 'Boat__c');
-            const stage = this.getUiFieldDisplayValue(record, 'Stage__c') || this.getUiFieldValue(record, 'Stage__c');
-
-            if (boatLabel) {
-                lines.push(`Unit: ${boatLabel}`);
-            }
-
-            if (stage) {
-                lines.push(`Appraisal: ${stage}`);
-            }
-        }
-
-        if (objectApiName === 'Marine__Deal__c') {
-            const boatLabel = this.getUiFieldDisplayValue(record, 'Marine__Boat__c');
-            const stage = this.getUiFieldDisplayValue(record, 'Marine__Stage__c') || this.getUiFieldValue(record, 'Marine__Stage__c');
-
-            if (boatLabel) {
-                lines.push(`Unit: ${boatLabel}`);
-            }
-
-            if (stage) {
-                lines.push(`Deal: ${stage}`);
-            }
-        }
-
-        return lines.filter(Boolean);
-    }
-
-    getUiFieldValue(record, fieldApiName) {
-        return record?.fields?.[fieldApiName]?.value ?? null;
-    }
-
-    getUiFieldDisplayValue(record, fieldApiName) {
-        return record?.fields?.[fieldApiName]?.displayValue ?? null;
-    }
-
-    toUiDateTimeValue(rawValue) {
-        if (!rawValue) {
-            return null;
-        }
-
-        if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawValue))) {
-            return new Date(`${rawValue}T00:00:00`);
-        }
-
-        return new Date(rawValue);
-    }
-
-    formatUiDateForBoard(rawValue) {
-        if (!rawValue) {
-            return null;
-        }
-
-        if (/^\d{4}-\d{2}-\d{2}$/.test(String(rawValue))) {
-            return `${rawValue}T00:00:00`;
-        }
-
-        return rawValue;
-    }
-
     rebuildViewModels() {
         this.weeks = [];
         this.agendaGroups = [];
         this.teamLoadRows = [];
         this.conflictRows = [];
+        this.dayViewData = null;
+
+        if (this.isDayView) {
+            this.dayViewData = buildDayViewData(this.currentDate, this.events);
+            return;
+        }
 
         if (this.isAgendaView) {
             this.agendaGroups = buildAgendaGroups(this.events);
@@ -3261,16 +2700,16 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
         groupedByCalendar.forEach((calendarEvents) => {
             const sorted = [...calendarEvents].sort(
-                (left, right) => this.toTime(left.start) - this.toTime(right.start)
+                (left, right) => toTime(left.start) - toTime(right.start)
             );
 
             for (let index = 0; index < sorted.length; index += 1) {
                 const current = sorted[index];
-                const currentEnd = this.toTime(current.endDateTime || current.start);
+                const currentEnd = toTime(current.endDateTime || current.start);
 
                 for (let compareIndex = index + 1; compareIndex < sorted.length; compareIndex += 1) {
                     const candidate = sorted[compareIndex];
-                    const candidateStart = this.toTime(candidate.start);
+                    const candidateStart = toTime(candidate.start);
 
                     if (candidateStart >= currentEnd) {
                         break;
@@ -3320,7 +2759,13 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             canDelete,
             canDeleteAttr: canDelete ? 'true' : 'false',
             hasContextMenu,
-            hasContextMenuAttr: hasContextMenu ? 'true' : 'false'
+            hasContextMenuAttr: hasContextMenu ? 'true' : 'false',
+            // Recurrence
+            recurrenceRule: row.recurrenceRule || null,
+            recurrenceParentId: row.recurrenceParentId || null,
+            isRecurrenceException: row.isRecurrenceException === true,
+            occurrenceDate: row.occurrenceDate || null,
+            isRecurring: row.isRecurring === true
         };
     }
 
@@ -3436,10 +2881,6 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         }
     }
 
-    toTime(value) {
-        return new Date(value).getTime();
-    }
-
     formatEventStamp(eventRecord) {
         const start = new Date(eventRecord.start);
         const endValue = eventRecord.endDateTime ? new Date(eventRecord.endDateTime) : null;
@@ -3507,146 +2948,4 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             })
         );
     }
-}
-
-function createDefaultLayoutPreference(overrides = {}) {
-    return {
-        defaultView: 'month',
-        defaultCalendarViewId: '',
-        defaultStatus: '',
-        showSecurityButton: true,
-        showRefreshButton: true,
-        showTodayButton: true,
-        showPrevNextButtons: true,
-        showNewButton: true,
-        showFiltersButton: true,
-        showSyncPanel: true,
-        showSelectUsersBox: true,
-        showFilterControls: true,
-        showWeekends: true,
-        autoExpandDayHeight: true,
-        wrapEventTitles: true,
-        compactEventDensity: false,
-        isActive: true,
-        ...overrides
-    };
-}
-
-function normalizeLayoutPreference(rawValue) {
-    const fallback = createDefaultLayoutPreference();
-    const source = rawValue || {};
-
-    return {
-        defaultView:
-            ['month', 'week', 'agenda', 'teamLoad', 'conflicts'].includes(source.defaultView)
-                ? source.defaultView
-                : 'month',
-        defaultCalendarViewId: source.defaultCalendarViewId || '',
-        defaultStatus: source.defaultStatus || '',
-        showSecurityButton:
-            source.showSecurityButton === undefined
-                ? fallback.showSecurityButton
-                : source.showSecurityButton === true,
-        showRefreshButton:
-            source.showRefreshButton === undefined
-                ? fallback.showRefreshButton
-                : source.showRefreshButton === true,
-        showTodayButton:
-            source.showTodayButton === undefined
-                ? fallback.showTodayButton
-                : source.showTodayButton === true,
-        showPrevNextButtons:
-            source.showPrevNextButtons === undefined
-                ? fallback.showPrevNextButtons
-                : source.showPrevNextButtons === true,
-        showNewButton:
-            source.showNewButton === undefined
-                ? fallback.showNewButton
-                : source.showNewButton === true,
-        showFiltersButton:
-            source.showFiltersButton === undefined
-                ? fallback.showFiltersButton
-                : source.showFiltersButton === true,
-        showSyncPanel:
-            source.showSyncPanel === undefined
-                ? fallback.showSyncPanel
-                : source.showSyncPanel === true,
-        showSelectUsersBox:
-            source.showSelectUsersBox === undefined
-                ? fallback.showSelectUsersBox
-                : source.showSelectUsersBox === true,
-        showFilterControls:
-            source.showFilterControls === undefined
-                ? fallback.showFilterControls
-                : source.showFilterControls === true,
-        showWeekends:
-            source.showWeekends === undefined ? fallback.showWeekends : source.showWeekends === true,
-        autoExpandDayHeight:
-            source.autoExpandDayHeight === undefined
-                ? fallback.autoExpandDayHeight
-                : source.autoExpandDayHeight === true,
-        wrapEventTitles:
-            source.wrapEventTitles === undefined
-                ? fallback.wrapEventTitles
-                : source.wrapEventTitles === true,
-        compactEventDensity: source.compactEventDensity === true,
-        isActive: source.isActive === undefined ? fallback.isActive : source.isActive === true
-    };
-}
-
-function escapeHtml(value) {
-    return String(value ?? '')
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
-function createDefaultGoogleConnection(overrides = {}) {
-    return {
-        configured: false,
-        connected: false,
-        requiresAuthentication: false,
-        mode: 'NamedPrincipal',
-        status: 'Not Connected',
-        message: 'Select a single calendar to manage Google connection.',
-        namedCredential: 'GoogleCalendar',
-        externalCredential: 'GoogleCalendar_ExternalCredential',
-        principalName: 'GoogleCalendarNamedPrincipal',
-        googleCalendarId: null,
-        googleImportCalendarIds: [],
-        ...overrides
-    };
-}
-
-function createContextLink(key, label, recordId, objectApiName, recordName) {
-    return {
-        key,
-        label,
-        recordId,
-        objectApiName,
-        recordName: recordName || ''
-    };
-}
-
-function dedupeContextLinks(links) {
-    const linksByKey = new Map();
-
-    (links || []).forEach((link) => {
-        if (!link?.recordId || !link?.label) {
-            return;
-        }
-
-        const key = `${link.label}::${link.recordId}`;
-        if (!linksByKey.has(key)) {
-            linksByKey.set(key, link);
-        }
-    });
-
-    return Array.from(linksByKey.values());
-}
-
-function isInContractStage(value) {
-    return String(value || '').trim().toLowerCase() === 'in contract';
 }
