@@ -82,6 +82,8 @@ function normalizeLayoutSettings(rawValue) {
  * @fires CalendarToolbar#usercalendarselectionchange
  * @fires CalendarToolbar#usercalendarmenuclose
  * @fires CalendarToolbar#layoutchange
+ * @fires CalendarToolbar#exportcsv
+ * @fires CalendarToolbar#exportical
  * @fires CalendarToolbar#generatepdf
  * @fires CalendarToolbar#googledisconnect
  * @fires CalendarToolbar#googleimportaction
@@ -142,6 +144,8 @@ export default class CalendarToolbar extends LightningElement {
         };
     }
 
+    _mobileMenuOpen = false;
+
     get toolbarClass() {
         let classes = 'toolbar';
 
@@ -149,7 +153,19 @@ export default class CalendarToolbar extends LightningElement {
             classes += ' toolbar--single-column';
         }
 
+        if (this._mobileMenuOpen) {
+            classes += ' toolbar--mobile-expanded';
+        }
+
         return classes;
+    }
+
+    get mobileMenuExpanded() {
+        return this._mobileMenuOpen ? 'true' : 'false';
+    }
+
+    handleMobileMenuToggle() {
+        this._mobileMenuOpen = !this._mobileMenuOpen;
     }
 
     get normalizedViewOptions() {
@@ -344,6 +360,14 @@ export default class CalendarToolbar extends LightningElement {
         this.dispatchEvent(new CustomEvent('generatepdf'));
     }
 
+    emitExportCsv() {
+        this.dispatchEvent(new CustomEvent('exportcsv'));
+    }
+
+    emitExportIcal() {
+        this.dispatchEvent(new CustomEvent('exportical'));
+    }
+
     emitGoogleImportAction() {
         this.dispatchEvent(new CustomEvent('googleimportaction'));
     }
@@ -518,5 +542,12 @@ export default class CalendarToolbar extends LightningElement {
 
     handleUserCalendarMenuClose() {
         this.dispatchEvent(new CustomEvent('usercalendarmenuclose'));
+    }
+
+    _searchTerm = '';
+
+    handleSearchInput(event) {
+        this._searchTerm = event.target.value;
+        this.dispatchEvent(new CustomEvent('searchchange', { detail: this._searchTerm }));
     }
 }

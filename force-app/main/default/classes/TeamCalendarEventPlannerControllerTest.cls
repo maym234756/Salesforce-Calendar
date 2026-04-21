@@ -36,7 +36,7 @@ private class TeamCalendarEventPlannerControllerTest {
                 contactRow.Id,
                 null,
                 'Customer',
-                'salesCall'
+                'Sales Call'
             );
         Test.stopTest();
 
@@ -68,7 +68,7 @@ private class TeamCalendarEventPlannerControllerTest {
                 null,
                 null,
                 'Internal',
-                'custom'
+                null
             );
         Test.stopTest();
 

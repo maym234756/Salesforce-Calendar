@@ -199,11 +199,14 @@ private class GoogleCalendarConnectionServiceTest {
 
     @IsTest
     static void saveCalendarSelection_updatesTeamCalendar() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Team_Calendar__c calendarRow = createCalendar('Save Calendar', true, null);
+        GoogleCalendarConnectionService.OperationResult result;
 
         Test.startTest();
-        GoogleCalendarConnectionService.OperationResult result =
-            GoogleCalendarConnectionService.saveCalendarSelection(calendarRow.Id, 'chosen@example.com');
+        System.runAs(securityAdmin) {
+            result = GoogleCalendarConnectionService.saveCalendarSelection(calendarRow.Id, 'chosen@example.com');
+        }
         Test.stopTest();
 
         Team_Calendar__c updatedRow = [
@@ -220,11 +223,14 @@ private class GoogleCalendarConnectionServiceTest {
 
     @IsTest
     static void saveCalendarSelection_clearsTeamCalendarGoogleId() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Team_Calendar__c calendarRow = createCalendar('Clear Calendar', true, 'existing@example.com');
+        GoogleCalendarConnectionService.OperationResult result;
 
         Test.startTest();
-        GoogleCalendarConnectionService.OperationResult result =
-            GoogleCalendarConnectionService.saveCalendarSelection(calendarRow.Id, '   ');
+        System.runAs(securityAdmin) {
+            result = GoogleCalendarConnectionService.saveCalendarSelection(calendarRow.Id, '   ');
+        }
         Test.stopTest();
 
         Team_Calendar__c updatedRow = [
@@ -241,14 +247,17 @@ private class GoogleCalendarConnectionServiceTest {
 
     @IsTest
     static void saveImportCalendarSelections_updatesTeamCalendar() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Team_Calendar__c calendarRow = createCalendar('Import Save Calendar', true, 'existing@example.com');
+        GoogleCalendarConnectionService.OperationResult result;
 
         Test.startTest();
-        GoogleCalendarConnectionService.OperationResult result =
-            GoogleCalendarConnectionService.saveImportCalendarSelections(
+        System.runAs(securityAdmin) {
+            result = GoogleCalendarConnectionService.saveImportCalendarSelections(
                 calendarRow.Id,
                 new List<String>{ 'primary', 'team@example.com', 'primary' }
             );
+        }
         Test.stopTest();
 
         Team_Calendar__c updatedRow = [
@@ -265,13 +274,19 @@ private class GoogleCalendarConnectionServiceTest {
 
     @IsTest
     static void saveImportCalendarSelections_clearsSelection() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Team_Calendar__c calendarRow = createCalendar('Import Clear Calendar', true, 'existing@example.com');
         calendarRow.Google_Import_Calendar_Ids__c = '["primary"]';
         update calendarRow;
+        GoogleCalendarConnectionService.OperationResult result;
 
         Test.startTest();
-        GoogleCalendarConnectionService.OperationResult result =
-            GoogleCalendarConnectionService.saveImportCalendarSelections(calendarRow.Id, new List<String>());
+        System.runAs(securityAdmin) {
+            result = GoogleCalendarConnectionService.saveImportCalendarSelections(
+                calendarRow.Id,
+                new List<String>()
+            );
+        }
         Test.stopTest();
 
         Team_Calendar__c updatedRow = [

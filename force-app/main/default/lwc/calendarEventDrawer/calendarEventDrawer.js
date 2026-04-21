@@ -631,6 +631,27 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
             requestPromise
                 .then(() => {
                     this.isDeleting = false;
+
+                    if (this.isCalendarEventRecord && this.isRecurringEvent !== true) {
+                        const recordName = this.eventState?.name || 'Event';
+                        this.dispatchEvent(
+                            new CustomEvent('mutation', {
+                                detail: {
+                                    mutationType: 'delete-calendar-event',
+                                    recordId: this.recordId,
+                                    recordName,
+                                    message: `${recordName} was deleted.`,
+                                    undoMessage: `Restored ${recordName}.`,
+                                    redoMessage: `Deleted ${recordName} again.`
+                                },
+                                bubbles: true,
+                                composed: true
+                            })
+                        );
+                        this.dispatchEvent(new CustomEvent('close'));
+                        return;
+                    }
+
                     this.dispatchEvent(
                         new ShowToastEvent({
                             title: this.isTaskRecord ? 'Task Deleted' : 'Event Deleted',
@@ -676,6 +697,32 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
         this.isEditMode = false;
         this.isSaving = false;
 
+        if (this.isCalendarEventRecord && this.isRecurringEvent !== true) {
+            const previousPayload = this.buildCalendarEventMutationPayload(this.eventState);
+            const nextPayload = this.buildCalendarEventMutationPayload(this.eventDraft || this.eventState);
+            const recordName = nextPayload?.name || previousPayload?.name || 'Event';
+
+            this.dispatchEvent(
+                new CustomEvent('mutation', {
+                    detail: {
+                        mutationType: 'calendar-update',
+                        recordId: this.recordId,
+                        recordName,
+                        previousPayload,
+                        nextPayload,
+                        message: `${recordName} was updated.`,
+                        undoMessage: `Undid changes to ${recordName}.`,
+                        redoMessage: `Reapplied changes to ${recordName}.`
+                    },
+                    bubbles: true,
+                    composed: true
+                })
+            );
+
+            this.dispatchEvent(new CustomEvent('close'));
+            return;
+        }
+
         this.dispatchEvent(
             new ShowToastEvent({
                 title: this.isTaskRecord ? 'Task Updated' : 'Event Updated',
@@ -704,6 +751,23 @@ export default class CalendarEventDrawer extends NavigationMixin(LightningElemen
                 variant: 'error'
             })
         );
+    }
+
+    buildCalendarEventMutationPayload(source) {
+        if (!source) {
+            return null;
+        }
+
+        return {
+            recordId: this.recordId,
+            calendarId: source.calendarId || null,
+            name: source.name || '',
+            startValue: source.startValue || null,
+            endValue: source.endValue || null,
+            allDay: source.allDay === true,
+            status: source.status || 'Planned',
+            notes: source.notes || ''
+        };
     }
 
     formatInputDateValue(rawValue, isAllDay) {

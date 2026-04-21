@@ -2,6 +2,7 @@ const {
   buildAssignableUserOptions,
   buildEventTemplateOptions,
   buildFollowUpPreviewRows,
+  normalizeEventTemplates,
   buildResolvedCalendarLabel,
   buildFollowUpSeries,
   buildTemplatePreset,
@@ -9,7 +10,7 @@ const {
   resolveDefaultAssignedUserId,
   resolveFollowUpAppointmentType,
   shiftDateTimeValue
-} = require('c/calendarCreateModal');
+} = require('../calendarCreateModalHelpers');
 
 describe('c-calendar-create-modal helpers', () => {
   it('keeps assign-to options inside the shared security-filtered active-user list', () => {
@@ -42,19 +43,30 @@ describe('c-calendar-create-modal helpers', () => {
   });
 
   it('exposes the expected event templates and presets', () => {
-    expect(buildEventTemplateOptions().map((option) => option.value)).toEqual([
-      'custom',
-      'salesCall',
-      'serviceFollowUp',
-      'internalReview'
+    const templates = normalizeEventTemplates([
+      {
+        id: 'a001',
+        name: 'Sales Call',
+        durationMinutes: 60,
+        calendarId: 'a0101',
+        calendarName: 'Revenue Team',
+        defaultStatus: 'Confirmed',
+        notes: 'Bring discovery deck.',
+        isActive: true
+      }
     ]);
 
-    expect(buildTemplatePreset('serviceFollowUp')).toMatchObject({
-      appointmentType: 'Follow-Up',
-      reminderOffset: '1 Day',
-      durationMinutes: 30,
-      followUpFrequency: 'weekly',
-      followUpCount: 3
+    expect(buildEventTemplateOptions(templates).map((option) => option.value)).toEqual([
+      'custom',
+      'a001'
+    ]);
+
+    expect(buildTemplatePreset('a001', templates)).toMatchObject({
+      name: 'Sales Call',
+      durationMinutes: 60,
+      calendarId: 'a0101',
+      defaultStatus: 'Confirmed',
+      notes: 'Bring discovery deck.'
     });
   });
 

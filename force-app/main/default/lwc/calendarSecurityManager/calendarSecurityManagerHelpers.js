@@ -1,6 +1,49 @@
 export const ACCESS_TAB = 'access';
 export const LAYOUT_TAB = 'layout';
 
+export function createDefaultEventTemplateDraft() {
+    return {
+        id: '',
+        name: '',
+        durationMinutes: 60,
+        calendarId: '',
+        calendarName: '',
+        defaultStatus: 'Planned',
+        notes: '',
+        isActive: true
+    };
+}
+
+export function normalizeEventTemplateDraft(rawValue) {
+    const fallback = createDefaultEventTemplateDraft();
+    const source = rawValue || {};
+    const parsedDuration = parseInt(source.durationMinutes, 10);
+
+    return {
+        id: source.id || '',
+        name: source.name || '',
+        durationMinutes: Number.isNaN(parsedDuration) || parsedDuration <= 0 ? fallback.durationMinutes : parsedDuration,
+        calendarId: source.calendarId || '',
+        calendarName: source.calendarName || '',
+        defaultStatus: source.defaultStatus || fallback.defaultStatus,
+        notes: source.notes || '',
+        isActive: source.isActive !== false
+    };
+}
+
+export function normalizeEventTemplateRow(rawValue) {
+    return normalizeEventTemplateDraft(rawValue);
+}
+
+export function buildEventTemplateSummary(row) {
+    const normalized = normalizeEventTemplateRow(row);
+    return [
+        `${normalized.durationMinutes} min`,
+        normalized.calendarName || 'No calendar',
+        normalized.defaultStatus || 'Planned'
+    ].join(' • ');
+}
+
 export const LAYOUT_FIELD_LABELS = {
     showSecurityButton: 'Show Security button',
     showRefreshButton: 'Show Refresh button',
@@ -52,11 +95,29 @@ export function normalizeAllowedSelectedUserIds(rawValue, fallbackIds = []) {
     });
 }
 
+function normalizeCalendarColorOverrides(rawValue) {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+        return {};
+    }
+
+    return Object.entries(rawValue).reduce((result, [calendarId, color]) => {
+        const normalizedCalendarId = typeof calendarId === 'string' ? calendarId.trim() : '';
+        const normalizedColor = typeof color === 'string' ? color.trim() : '';
+
+        if (normalizedCalendarId && normalizedColor) {
+            result[normalizedCalendarId] = normalizedColor;
+        }
+
+        return result;
+    }, {});
+}
+
 export function createDefaultLayoutDraft(defaultAllowedSelectedUserIds = []) {
     return {
         defaultView: 'month',
         defaultCalendarViewId: '',
         defaultStatus: '',
+        calendarColorOverrides: {},
         showSecurityButton: true,
         showRefreshButton: true,
         showTodayButton: true,
@@ -90,6 +151,7 @@ export function normalizeLayoutDraft(rawValue, defaultAllowedSelectedUserIds = [
         defaultView: allowedViews.has(defaultView) ? defaultView : fallback.defaultView,
         defaultCalendarViewId: source.defaultCalendarViewId || '',
         defaultStatus: source.defaultStatus || '',
+        calendarColorOverrides: normalizeCalendarColorOverrides(source.calendarColorOverrides),
         showSecurityButton:
             source.showSecurityButton === undefined
                 ? fallback.showSecurityButton

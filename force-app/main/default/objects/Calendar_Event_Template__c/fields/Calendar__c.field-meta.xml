@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Calendar__c</fullName>
+    <type>Lookup</type>
+    <description>Default team calendar applied when this template is selected.</description>
+    <inlineHelpText>Select the Team Calendar that should be pre-filled for this template.</inlineHelpText>
+    <label>Calendar</label>
+    <referenceTo>Team_Calendar__c</referenceTo>
+    <relationshipLabel>Event Templates</relationshipLabel>
+    <relationshipName>Event_Templates</relationshipName>
+    <deleteConstraint>Restrict</deleteConstraint>
+</CustomField>

@@ -6,6 +6,8 @@
  * @last modified by  : ChangeMeIn@UserSettingsUnder.SFDoc
 **/
 public with sharing class TeamCalendarUserPreferenceService {
+    private static final Pattern HEX_COLOR_PATTERN = Pattern.compile('^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$');
+
     private static final Set<String> BULK_LAYOUT_FIELD_NAMES = new Set<String>{
         'showSecurityButton',
         'showRefreshButton',
@@ -31,6 +33,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         @AuraEnabled public String defaultView;
         @AuraEnabled public String defaultCalendarViewId;
         @AuraEnabled public String defaultStatus;
+        @AuraEnabled public Map<String, String> calendarColorOverrides = new Map<String, String>();
 
         @AuraEnabled public Boolean showSecurityButton;
         @AuraEnabled public Boolean showRefreshButton;
@@ -55,6 +58,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         @AuraEnabled public String defaultView;
         @AuraEnabled public String defaultCalendarViewId;
         @AuraEnabled public String defaultStatus;
+        @AuraEnabled public Map<String, String> calendarColorOverrides;
 
         @AuraEnabled public Boolean showSecurityButton;
         @AuraEnabled public Boolean showRefreshButton;
@@ -89,6 +93,10 @@ public with sharing class TeamCalendarUserPreferenceService {
         return toDto(loadOrDefault(UserInfo.getUserId()));
     }
 
+    public static UserPreferenceDTO savePreferenceForCurrentUser(UserPreferenceInput inputRow) {
+        return savePreference(UserInfo.getUserId(), inputRow);
+    }
+
     public static UserPreferenceDTO getPreferenceForTargetUser(Id userId) {
         if (userId == null) {
             throw new AuraHandledException('A user id is required.');
@@ -105,6 +113,10 @@ public with sharing class TeamCalendarUserPreferenceService {
 
         enforceSecurityAdmin();
 
+        return savePreference(userId, inputRow);
+    }
+
+    private static UserPreferenceDTO savePreference(Id userId, UserPreferenceInput inputRow) {
         Calendar_User_Preference__c workingRow = loadExisting(userId);
         if (workingRow == null) {
             workingRow = new Calendar_User_Preference__c(
@@ -117,6 +129,9 @@ public with sharing class TeamCalendarUserPreferenceService {
         workingRow.Default_View__c = normalized.defaultView;
         workingRow.Default_Calendar_View_Id__c = normalized.defaultCalendarViewId;
         workingRow.Default_Status__c = normalized.defaultStatus;
+        workingRow.Color_Overrides__c = serializeCalendarColorOverrides(
+            normalized.calendarColorOverrides
+        );
 
         workingRow.Show_Security_Button__c = normalized.showSecurityButton;
         workingRow.Show_Refresh_Button__c = normalized.showRefreshButton;
@@ -240,6 +255,7 @@ public with sharing class TeamCalendarUserPreferenceService {
                    Default_View__c,
                    Default_Calendar_View_Id__c,
                    Default_Status__c,
+                   Color_Overrides__c,
                    Show_Security_Button__c,
                    Show_Refresh_Button__c,
                    Show_Today_Button__c,
@@ -304,6 +320,9 @@ public with sharing class TeamCalendarUserPreferenceService {
         dto.defaultView = normalizeDefaultView(inputRow != null ? inputRow.defaultView : null);
         dto.defaultCalendarViewId = inputRow != null ? inputRow.defaultCalendarViewId : null;
         dto.defaultStatus = inputRow != null && inputRow.defaultStatus != null ? inputRow.defaultStatus : '';
+        dto.calendarColorOverrides = normalizeCalendarColorOverrides(
+            inputRow != null ? inputRow.calendarColorOverrides : null
+        );
 
         dto.showSecurityButton = inputRow == null || inputRow.showSecurityButton == null ? true : inputRow.showSecurityButton;
         dto.showRefreshButton = inputRow == null || inputRow.showRefreshButton == null ? true : inputRow.showRefreshButton;
@@ -338,6 +357,7 @@ public with sharing class TeamCalendarUserPreferenceService {
         dto.defaultView = normalizeDefaultView(safeRow.Default_View__c);
         dto.defaultCalendarViewId = safeRow.Default_Calendar_View_Id__c;
         dto.defaultStatus = safeRow.Default_Status__c;
+        dto.calendarColorOverrides = parseCalendarColorOverrides(safeRow.Color_Overrides__c);
 
         dto.showSecurityButton = safeRow.Show_Security_Button__c == null ? true : safeRow.Show_Security_Button__c;
         dto.showRefreshButton = safeRow.Show_Refresh_Button__c == null ? true : safeRow.Show_Refresh_Button__c;
@@ -411,6 +431,77 @@ public with sharing class TeamCalendarUserPreferenceService {
                 throw new AuraHandledException('That layout field cannot be updated for all users.');
             }
         }
+    }
+
+    private static Map<String, String> normalizeCalendarColorOverrides(
+        Map<String, String> rawValues
+    ) {
+        Map<String, String> normalized = new Map<String, String>();
+
+        if (rawValues == null) {
+            return normalized;
+        }
+
+        for (String rawKey : rawValues.keySet()) {
+            if (String.isBlank(rawKey)) {
+                continue;
+            }
+
+            String normalizedColor = normalizeCalendarColor(rawValues.get(rawKey));
+            if (normalizedColor == null) {
+                continue;
+            }
+
+            normalized.put(rawKey.trim(), normalizedColor);
+        }
+
+        return normalized;
+    }
+
+    private static String normalizeCalendarColor(String rawValue) {
+        if (String.isBlank(rawValue)) {
+            return null;
+        }
+
+        String normalized = rawValue.trim().toLowerCase();
+        if (!normalized.startsWith('#')) {
+            normalized = '#' + normalized;
+        }
+
+        return HEX_COLOR_PATTERN.matcher(normalized).matches() ? normalized : null;
+    }
+
+    private static Map<String, String> parseCalendarColorOverrides(String rawValue) {
+        Map<String, String> overrides = new Map<String, String>();
+
+        if (String.isBlank(rawValue)) {
+            return overrides;
+        }
+
+        try {
+            Map<String, Object> rawMap = (Map<String, Object>) JSON.deserializeUntyped(rawValue);
+            for (String rawKey : rawMap.keySet()) {
+                if (String.isBlank(rawKey)) {
+                    continue;
+                }
+
+                String normalizedColor = normalizeCalendarColor(String.valueOf(rawMap.get(rawKey)));
+                if (normalizedColor == null) {
+                    continue;
+                }
+
+                overrides.put(rawKey.trim(), normalizedColor);
+            }
+        } catch (Exception ex) {
+            return new Map<String, String>();
+        }
+
+        return overrides;
+    }
+
+    private static String serializeCalendarColorOverrides(Map<String, String> rawValues) {
+        Map<String, String> normalized = normalizeCalendarColorOverrides(rawValues);
+        return normalized.isEmpty() ? null : JSON.serialize(normalized);
     }
 
     private static List<String> normalizeAllowedSelectedUserIds(List<String> rawValues) {

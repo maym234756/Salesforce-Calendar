@@ -5,19 +5,12 @@ import getCalendars from '@salesforce/apex/TeamCalendarBoardController.getCalend
 import getActiveUsers from '@salesforce/apex/TeamCalendarBoardController.getActiveUsers';
 import getUserCalendars from '@salesforce/apex/TeamCalendarBoardController.getUserCalendars';
 import getEventsForRange from '@salesforce/apex/TeamCalendarBoardController.getEventsForRange';
-import getPdfExportPageUrl from '@salesforce/apex/TeamCalendarBoardController.getPdfExportPageUrl';
 import getTaskEventsForCalendarViews from '@salesforce/apex/TeamCalendarBoardController.getTaskEventsForCalendarViews';
 import getCurrentUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityController.getCurrentUserLayoutPreference';
-import pushEventsForCalendar from '@salesforce/apex/GoogleCalendarSyncService.pushEventsForCalendar';
-import importEventsFromGoogle from '@salesforce/apex/GoogleCalendarSyncService.importEventsFromGoogle';
-import getConnectionState from '@salesforce/apex/GoogleCalendarConnectionService.getConnectionState';
-import getAuthenticationUrl from '@salesforce/apex/GoogleCalendarConnectionService.getAuthenticationUrl';
-import disconnectGoogle from '@salesforce/apex/GoogleCalendarConnectionService.disconnectGoogle';
-import listAvailableCalendars from '@salesforce/apex/GoogleCalendarConnectionService.listAvailableCalendars';
-import saveCalendarSelection from '@salesforce/apex/GoogleCalendarConnectionService.saveCalendarSelection';
-import saveImportCalendarSelections from '@salesforce/apex/GoogleCalendarConnectionService.saveImportCalendarSelections';
+import saveCurrentUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityController.saveCurrentUserLayoutPreference';
 import updateCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.updateCalendarEvent';
 import deleteCalendarEvent from '@salesforce/apex/TeamCalendarRecordMutationService.deleteCalendarEvent';
+import createCalendarEventSeries from '@salesforce/apex/TeamCalendarRecordMutationService.createCalendarEventSeries';
 import deleteTask from '@salesforce/apex/TeamCalendarRecordMutationService.deleteTask';
 import { getListRecordsByName } from 'lightning/uiListsApi';
 import {
@@ -60,6 +53,43 @@ import {
     buildHoveredEventPreview as buildHoveredEventPreviewFn,
     resolveRecordObjectApiName as resolveRecordObjectApiNameFn
 } from './calendarContextMenuHelpers';
+import {
+    buildEmptyGoogleCalendarOptions,
+    buildGoogleSyncCalendarDefinitions,
+    buildGoogleSyncViewState,
+    isGoogleSyncCalendarId as isGoogleSyncCalendarIdFn
+} from './calendarGoogleSyncState';
+import {
+    resetGoogleSyncSelectionContext,
+    routeGoogleToolbarEvent as routeGoogleToolbarEventFn,
+    routeGoogleModalEvent as routeGoogleModalEventFn,
+    loadGoogleConnectionState as loadGoogleConnectionStateFn,
+    loadGoogleCalendarOptions as loadGoogleCalendarOptionsFn,
+    handleGoogleDisconnect as handleGoogleDisconnectFn,
+    startGoogleConnect as startGoogleConnectFn,
+    runGoogleImportSync as runGoogleImportSyncFn,
+    runGoogleSync as runGoogleSyncFn
+} from './calendarGoogleSyncController';
+import {
+    handleExportCsv as handleExportCsvFn,
+    handleExportIcal as handleExportIcalFn
+} from './calendarExportController';
+import {
+    DEFAULT_PDF_EXPORT_PAGE_URL,
+    handleGeneratePdf as handleGeneratePdfFn,
+    loadPdfExportPageUrl as loadPdfExportPageUrlFn
+} from './calendarPdfExportController';
+import {
+    buildDeleteMutation as buildDeleteMutationFn,
+    clearMutationTimers as clearMutationTimersFn,
+    registerMutation as registerMutationFn,
+    handleMutationNoticeAction as handleMutationNoticeActionFn,
+    dismissMutationNotice as dismissMutationNoticeFn
+} from './calendarMutationController';
+import {
+    initializeRealtimeUpdates as initializeRealtimeUpdatesFn,
+    disconnectRealtimeUpdates as disconnectRealtimeUpdatesFn
+} from './calendarRealtimeController';
 
 const RELATED_RECORD_CONTEXT_OBJECTS = new Set(['Marine__Boat__c', 'Appraisal__c', 'Marine__Deal__c']);
 
@@ -68,11 +98,15 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     isLoading = false;
     isGoogleBusy = false;
 
+    _eventCache = new Map();
+    static _CACHE_TTL_MS = 60000;
+
     currentDate = new Date();
     currentView = 'month';
 
     showCreateModal = false;
     showDrawer = false;
+    showKeyboardShortcutOverlay = false;
     isDeletingEvent = false;
     isMovingEvent = false;
     pendingDeleteConfirm = null;
@@ -93,6 +127,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     hoveredEventPreview = null;
 
     events = [];
+    _searchTerm = '';
+    _ariaMessage = '';
     weeks = [];
     agendaGroups = [];
     dayViewData = null;
@@ -110,7 +146,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     googleExportModalCalendarId = '';
 
     googleConnection = createDefaultGoogleConnection();
-    googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
+    googleCalendarOptions = buildEmptyGoogleCalendarOptions();
     currentUserId = USER_ID;
     userLayoutPreference = createDefaultLayoutPreference();
 
@@ -142,23 +178,42 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     calendarViewErrorsById = {};
 
     loadSequence = 0;
-    pdfExportPageUrl = '/apex/TeamCalendarPdfExport';
+    pdfExportPageUrl = DEFAULT_PDF_EXPORT_PAGE_URL;
+    realtimeSubscription = null;
 
     calendarViewWireData;
     calendarViewWireError;
     calendarViewPageSize = 2000;
+    _isMobile = false;
+    _touchStartX = 0;
+    _touchStartY = 0;
+    _quickCreate = null;
+    _navDebounceTimer = null;
+    _skipNextDrawerReload = false;
+    _mutationHistory = [];
+    _redoMutationHistory = [];
+    _mutationSequence = 0;
+    activeMutationNotice = null;
+    legendColorSaveSequence = 0;
     boundWindowContextMenuHandler;
     boundWindowMouseDownHandler;
     boundDocumentContextMenuHandler;
     boundDocumentPointerDownHandler;
+    boundKeyDownHandler;
+    boundResizeHandler;
 
     connectedCallback() {
         this.boundWindowContextMenuHandler = this.handleWindowContextMenu.bind(this);
         this.boundWindowMouseDownHandler = this.handleWindowMouseDown.bind(this);
         this.boundDocumentContextMenuHandler = this.handleDocumentContextMenu.bind(this);
         this.boundDocumentPointerDownHandler = this.handleDocumentPointerDown.bind(this);
+        this.boundKeyDownHandler = this.handleKeyDown.bind(this);
+        this.boundResizeHandler = this._handleResize.bind(this);
         window.addEventListener('mousedown', this.boundWindowMouseDownHandler, true);
         window.addEventListener('contextmenu', this.boundWindowContextMenuHandler, true);
+        window.addEventListener('keydown', this.boundKeyDownHandler, true);
+        window.addEventListener('resize', this.boundResizeHandler, { passive: true });
+        this._isMobile = window.innerWidth <= 640;
         if (this.ownerDocument) {
             this.ownerDocument.addEventListener('pointerdown', this.boundDocumentPointerDownHandler, true);
             this.ownerDocument.addEventListener('contextmenu', this.boundDocumentContextMenuHandler, true);
@@ -181,6 +236,14 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         if (this.boundWindowContextMenuHandler) {
             window.removeEventListener('contextmenu', this.boundWindowContextMenuHandler, true);
         }
+        if (this.boundKeyDownHandler) {
+            window.removeEventListener('keydown', this.boundKeyDownHandler, true);
+        }
+        if (this.boundResizeHandler) {
+            window.removeEventListener('resize', this.boundResizeHandler);
+        }
+        clearMutationTimersFn(this);
+        disconnectRealtimeUpdatesFn(this);
     }
 
     async initialize() {
@@ -188,20 +251,10 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         await Promise.all([
             this.loadCalendars(),
             this.loadActiveUsers(),
-            this.loadPdfExportPageUrl()
+            loadPdfExportPageUrlFn(this)
         ]);
         await Promise.all([this.loadEvents(), this.loadGoogleConnectionState()]);
-    }
-
-    async loadPdfExportPageUrl() {
-        try {
-            const resolvedUrl = await getPdfExportPageUrl();
-            if (resolvedUrl) {
-                this.pdfExportPageUrl = resolvedUrl;
-            }
-        } catch (error) {
-            this.pdfExportPageUrl = '/apex/TeamCalendarPdfExport';
-        }
+        await initializeRealtimeUpdatesFn(this);
     }
 
     get rangeLabel() {
@@ -213,17 +266,33 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     get eventCount() {
-        return this.events.length;
+        return this.filteredEvents.length;
+    }
+
+    get filteredEvents() {
+        if (!this._searchTerm) return this.events;
+        const term = this._searchTerm.toLowerCase();
+        return this.events.filter((ev) => {
+            const name = (ev.name || '').toLowerCase();
+            const notes = (ev.notes || '').toLowerCase();
+            return name.includes(term) || notes.includes(term);
+        });
     }
 
     get legendItems() {
-        return (this.calendarDefinitions || [])
-            .filter((row) => row.isDisplayed)
-            .map((row) => ({
-                id: row.id,
-                label: row.name,
-                color: row.color
-            }));
+        const selectedDefinition = this.selectedCalendarDefinition;
+        if (!selectedDefinition) {
+            return [];
+        }
+
+        return [
+            {
+                id: selectedDefinition.id,
+                label: selectedDefinition.name,
+                color: selectedDefinition.color,
+                defaultColor: selectedDefinition.baseColor || selectedDefinition.color
+            }
+        ];
     }
 
     get hasLegendItems() {
@@ -301,10 +370,12 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     get isGridView() {
+        if (this._isMobile) return false;
         return this.currentView === 'month' || this.currentView === 'week';
     }
 
     get isDayView() {
+        if (this._isMobile) return false;
         return this.currentView === 'day';
     }
 
@@ -313,6 +384,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     get isAgendaView() {
+        if (this._isMobile && (this.currentView === 'month' || this.currentView === 'week' || this.currentView === 'day')) {
+            return true;
+        }
         return this.currentView === 'agenda';
     }
 
@@ -334,6 +408,51 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
     get defaultCalendarId() {
         return this.selectedCalendarId || null;
+    }
+
+    get hasQuickCreate() {
+        return this._quickCreate !== null;
+    }
+
+    get quickCreateStyle() {
+        if (!this._quickCreate) return '';
+        const r = this._quickCreate.anchorRect;
+        const popoverWidth = 280;
+        const margin = 6;
+        const viewportWidth = window.innerWidth || 800;
+        let top = r.bottom + margin;
+        let left = r.left;
+        if (left + popoverWidth > viewportWidth - margin) {
+            left = viewportWidth - popoverWidth - margin;
+        }
+        if (left < margin) left = margin;
+        return `top:${top}px; left:${left}px;`;
+    }
+
+    get quickCreateCalendarOptions() {
+        return (this.calendarDefinitions || [])
+            .filter((row) => row.canCreate === true)
+            .map((row) => ({ label: row.name, value: row.id }));
+    }
+
+    get quickCreateTitle() {
+        return this._quickCreate ? (this._quickCreate.title || '') : '';
+    }
+
+    get quickCreateCalendarId() {
+        return this._quickCreate ? (this._quickCreate.calendarId || '') : '';
+    }
+
+    get quickCreateIsSaving() {
+        return this._quickCreate ? (this._quickCreate.isSaving === true) : false;
+    }
+
+    get skeletonCells() {
+        const cells = [];
+        for (let i = 0; i < 35; i++) {
+            cells.push({ key: `skel-${i}` });
+        }
+        return cells;
     }
 
     get selectedCalendarDefinition() {
@@ -409,375 +528,33 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         return qualifiedFieldNames.length ? qualifiedFieldNames : undefined;
     }
 
-    get googleImportActionLabel() {
-        if (!this.selectedCalendarId) {
-            return 'Select Calendar';
-        }
-
-        if (this.isCalendarViewBackedSelection) {
-            return 'Calendar View';
-        }
-
-        if (!this.googleConnection.configured) {
-            return 'Setup Needed';
-        }
-
-        return 'Import to Salesforce';
-    }
-
-    get googleConnectLabel() {
-        if (!this.selectedCalendarId) {
-            return 'Select Calendar';
-        }
-
-        if (!this.googleConnection.configured) {
-            return 'Setup Needed';
-        }
-
-        return this.googleConnection.connected ? 'Reconnect Google' : 'Connect Google';
-    }
-
-    get googleConnectDisabled() {
-        return this.isGoogleBusy || !this.selectedCalendarId || !this.googleConnection.configured;
-    }
-
-    get googleImportActionDisabled() {
-        return this.isGoogleBusy;
-    }
-
-    get googleImportStatusLabel() {
-        if (this.isCalendarViewBackedSelection) {
-            return 'Calendar View ACTIVE';
-        }
-
-        if (this.isGoogleBusy) {
-            return 'Working';
-        }
-
-        if (this.googleImportStatus) {
-            return this.googleImportStatus;
-        }
-
-        return this.googleConnection.status || 'Not Connected';
-    }
-
-    get googleImportStatusMessage() {
-        if (this.isCalendarViewBackedSelection) {
-            const selected = this.selectedCalendarDefinition;
-            if (!selected) {
-                return 'This selection is backed by a Salesforce Calendar View.';
-            }
-
-            return `${selected.name} is powered by ${selected.sobjectType} via list view ${selected.listViewFilterId}. Google Sync only applies to Team Calendar event calendars.`;
-        }
-
-        if (this.isGoogleBusy) {
-            return 'Please wait while the Google action finishes.';
-        }
-
-        if (this.googleImportMessage) {
-            return this.googleImportMessage;
-        }
-
-        return this.googleConnection.message || '';
-    }
-
-    get googleExportActionLabel() {
-        if (!this.selectedCalendarId) {
-            return 'Select Calendar';
-        }
-
-        if (this.isCalendarViewBackedSelection) {
-            return 'Calendar View';
-        }
-
-        if (!this.googleConnection.configured) {
-            return 'Setup Needed';
-        }
-
-        return 'Sync to Google';
-    }
-
-    get googleExportActionDisabled() {
-        return this.isGoogleBusy;
-    }
-
-    get googleExportStatus() {
-        if (this.isCalendarViewBackedSelection) {
-            return 'Calendar View ACTIVE';
-        }
-
-        if (this.isGoogleBusy) {
-            return 'Working';
-        }
-
-        if (this.syncStatus) {
-            return this.syncStatus;
-        }
-
-        if (!this.googleConnection.connected) {
-            return this.googleConnection.status || 'Not Connected';
-        }
-
-        return this.googleConnection.googleCalendarId ? 'Ready' : 'Choose Google Calendar';
-    }
-
-    get googleExportMessage() {
-        if (this.isCalendarViewBackedSelection) {
-            return 'Google Sync is only available for Team Calendar records.';
-        }
-
-        if (this.isGoogleBusy) {
-            return 'Please wait while the Google action finishes.';
-        }
-
-        if (this.syncMessage) {
-            return this.syncMessage;
-        }
-
-        return this.googleExportHelpText;
-    }
-
-    get googleImportModalCalendarOptions() {
-        return (this.googleSyncCalendarDefinitions || []).map((definition) => ({
-            label: definition.name,
-            value: definition.id
-        }));
-    }
-
-    get googleImportModalSelectOptions() {
-        const selectedValue = this.resolvedGoogleImportModalCalendarId;
-
-        return [
-            {
-                label: 'Select a Team Calendar',
-                value: '',
-                selected: !selectedValue
-            },
-            ...(this.googleImportModalCalendarOptions || []).map((option) => ({
-                ...option,
-                selected: option.value === selectedValue
-            }))
-        ];
-    }
-
-    get googleExportModalCalendarOptions() {
-        return (this.googleSyncCalendarDefinitions || []).map((definition) => ({
-            label: definition.name,
-            value: definition.id
-        }));
-    }
-
-    get googleExportModalSelectOptions() {
-        const selectedValue = this.resolvedGoogleExportModalCalendarId;
-
-        return [
-            {
-                label: 'Select a Team Calendar',
-                value: '',
-                selected: !selectedValue
-            },
-            ...(this.googleExportModalCalendarOptions || []).map((option) => ({
-                ...option,
-                selected: option.value === selectedValue
-            }))
-        ];
-    }
-
-    get googleExportSelectOptions() {
-        const selectedValue = this.selectedGoogleCalendarId || '';
-
-        return (this.googleCalendarOptions || []).map((option) => ({
-            ...option,
-            selected: (option.value || '') === selectedValue
-        }));
-    }
-
     get googleSyncCalendarDefinitions() {
-        return (this.calendarDefinitions || []).filter(
-            (definition) => definition && !this.isCalendarViewDefinition(definition)
+        return buildGoogleSyncCalendarDefinitions(
+            this.calendarDefinitions,
+            (definition) => this.isCalendarViewDefinition(definition)
         );
     }
 
-    get resolvedGoogleImportModalCalendarId() {
-        if (this.googleImportModalCalendarId && this.isGoogleSyncCalendarId(this.googleImportModalCalendarId)) {
-            return this.googleImportModalCalendarId;
-        }
-
-        if (this.isGoogleSyncCalendarId(this.selectedCalendarId)) {
-            return this.selectedCalendarId;
-        }
-
-        return '';
-    }
-
-    get resolvedGoogleExportModalCalendarId() {
-        if (this.googleExportModalCalendarId && this.isGoogleSyncCalendarId(this.googleExportModalCalendarId)) {
-            return this.googleExportModalCalendarId;
-        }
-
-        if (this.isGoogleSyncCalendarId(this.selectedCalendarId)) {
-            return this.selectedCalendarId;
-        }
-
-        return '';
-    }
-
-    get isGoogleImportModalCalendarSelected() {
-        return Boolean(this.resolvedGoogleImportModalCalendarId);
-    }
-
-    get isGoogleImportModalUsingCurrentCalendar() {
-        return this.resolvedGoogleImportModalCalendarId === (this.selectedCalendarId || '');
-    }
-
-    get isGoogleExportModalCalendarSelected() {
-        return Boolean(this.resolvedGoogleExportModalCalendarId);
-    }
-
-    get isGoogleExportModalUsingCurrentCalendar() {
-        return this.resolvedGoogleExportModalCalendarId === (this.selectedCalendarId || '');
-    }
-
-    get isGoogleExportModalConnected() {
-        return this.isGoogleExportModalUsingCurrentCalendar && this.googleConnection.connected === true;
-    }
-
-    get googleExportModalTitle() {
-        if (!this.isGoogleExportModalCalendarSelected) {
-            return 'Choose Salesforce Calendar';
-        }
-
-        return this.isGoogleExportModalConnected
-            ? 'Choose Google Calendar'
-            : 'Connect Google Calendar';
-    }
-
-    get isGoogleImportModalReadyForConnection() {
-        return this.isGoogleImportModalCalendarSelected && this.isGoogleImportModalUsingCurrentCalendar;
-    }
-
-    get isGoogleImportModalConfigured() {
-        return this.isGoogleImportModalReadyForConnection && this.googleConnection.configured === true;
-    }
-
-    get isGoogleImportModalConnected() {
-        return this.googleConnection.connected === true;
-    }
-
-    get googleImportModalTitle() {
-        if (!this.isGoogleImportModalCalendarSelected) {
-            return 'Choose Salesforce Calendar';
-        }
-
-        if (!this.isGoogleImportModalConfigured) {
-            return 'Choose Salesforce Calendar';
-        }
-
-        return this.isGoogleImportModalConnected
-            ? 'Choose Google Calendars'
-            : 'Connect Google Calendar';
-    }
-
-    get googleImportModalCalendarHelpText() {
-        if (!this.googleImportModalCalendarOptions.length) {
-            return 'No Team Calendars are available for Google sync.';
-        }
-
-        if (!this.isGoogleImportModalCalendarSelected) {
-            return 'Choose which Salesforce Team Calendar should receive imported Google events.';
-        }
-
-        if (!this.isGoogleImportModalUsingCurrentCalendar) {
-            return 'Continue to load Google connection settings for the selected Salesforce Team Calendar.';
-        }
-
-        if (!this.googleConnection.configured) {
-            return 'Google connection settings are unavailable right now.';
-        }
-
-        return 'Continue to connect Google and choose the Google calendars to import.';
-    }
-
     isGoogleSyncCalendarId(calendarId) {
-        if (!calendarId) {
-            return false;
-        }
-
-        return this.googleSyncCalendarDefinitions.some((definition) => definition.id === calendarId);
+        return isGoogleSyncCalendarIdFn(calendarId, this.googleSyncCalendarDefinitions);
     }
 
-    get showGoogleDisconnect() {
-        if (this.isCalendarViewBackedSelection) {
-            return false;
-        }
-
-        return this.selectedCalendarId && this.googleConnection.connected;
-    }
-
-    get selectedGoogleCalendarId() {
-        return this.googleConnection?.googleCalendarId || '';
-    }
-
-    get selectedGoogleImportCalendarIds() {
-        const rawIds = this.googleConnection?.googleImportCalendarIds;
-        return Array.isArray(rawIds) ? rawIds : [];
-    }
-
-    get showGoogleCalendarPicker() {
-        return !this.isCalendarViewBackedSelection && this.googleConnection.configured;
-    }
-
-    get googleCalendarSelectionDisabled() {
-        return this.isGoogleBusy || !this.isGoogleExportModalUsingCurrentCalendar || !this.googleConnection.connected;
-    }
-
-    get googleExportHelpText() {
-        if (!this.isGoogleExportModalCalendarSelected) {
-            return 'Choose which Salesforce Team Calendar should sync outward to Google.';
-        }
-
-        if (!this.isGoogleExportModalUsingCurrentCalendar) {
-            return 'Continue to load Google connection settings for the selected Salesforce Team Calendar.';
-        }
-
-        if (!this.isGoogleExportModalConnected) {
-            return 'Connect Google first, then choose which Google calendar to sync.';
-        }
-
-        if (this.googleCalendarOptions.length <= 1) {
-            return 'No writable Google calendars were returned for this Google account.';
-        }
-
-        return 'Choose the single Google calendar that should receive Salesforce events.';
-    }
-
-    get googleImportCalendarOptions() {
-        return (this.googleCalendarOptions || []).filter((option) => option.value);
-    }
-
-    get googleImportCalendarsDisabled() {
-        return this.isGoogleBusy || !this.selectedCalendarId || !this.googleConnection.connected;
-    }
-
-    get googleImportHelpText() {
-        if (this.isCalendarViewBackedSelection) {
-            return 'Google import is only available for Team Calendar records.';
-        }
-
-        if (!this.googleConnection.configured) {
-            return 'Google connection settings are unavailable right now.';
-        }
-
-        if (!this.googleConnection.connected) {
-            return 'Connect Google first, then choose one or more Google calendars to import.';
-        }
-
-        if (this.googleImportCalendarOptions.length === 0) {
-            return 'No writable Google calendars were returned for this Google account.';
-        }
-
-        return 'Choose which Google calendars should feed back into this Salesforce Team Calendar.';
+    get googleSyncViewState() {
+        return buildGoogleSyncViewState({
+            selectedCalendarId: this.selectedCalendarId,
+            isCalendarViewBackedSelection: this.isCalendarViewBackedSelection,
+            selectedCalendarDefinition: this.selectedCalendarDefinition,
+            isGoogleBusy: this.isGoogleBusy,
+            googleConnection: this.googleConnection,
+            googleCalendarOptions: this.googleCalendarOptions,
+            googleImportModalCalendarId: this.googleImportModalCalendarId,
+            googleExportModalCalendarId: this.googleExportModalCalendarId,
+            googleSyncCalendarDefinitions: this.googleSyncCalendarDefinitions,
+            syncStatus: this.syncStatus,
+            syncMessage: this.syncMessage,
+            googleImportStatus: this.googleImportStatus,
+            googleImportMessage: this.googleImportMessage
+        });
     }
 
     get selectedUsersDetailed() {
@@ -896,10 +673,16 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return null;
         }
 
+        const calendarId = row.id || row.Id || null;
+        const baseColor = this.normalizeCalendarColor(
+            row.baseColor || row.BaseColor || row.defaultColor || row.DefaultColor || row.color || row.Color
+        );
+
         return {
-            id: row.id || row.Id || null,
+            id: calendarId,
             name: row.name || row.Name || '',
-            color: this.normalizeCalendarColor(row.color || row.Color || '#0176d3'),
+            baseColor,
+            color: this.resolveCalendarDisplayColor(calendarId, baseColor),
             ownerId: row.ownerId || row.OwnerId || null,
             assignedUserId:
                 row.assignedUserId ||
@@ -962,25 +745,166 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
         this.userLayoutPreference = normalized;
 
-        if (!shouldApplySelections) {
+        if (shouldApplySelections) {
+            this.currentView = normalized.defaultView;
+            this.selectedStatus = normalized.defaultStatus || '';
+
+            if (
+                normalized.defaultCalendarViewId &&
+                (this.calendarDefinitions || []).some(
+                    (row) => row.id === normalized.defaultCalendarViewId
+                )
+            ) {
+                this.selectedCalendarId = normalized.defaultCalendarViewId;
+            } else if (
+                this.selectedCalendarId &&
+                !(this.calendarDefinitions || []).some((row) => row.id === this.selectedCalendarId)
+            ) {
+                this.selectedCalendarId = '';
+            }
+        }
+
+        this.refreshCalendarColorsFromPreference();
+    }
+
+    handleToolbarSearchChange(event) {
+        this._searchTerm = (event.detail || '').trim();
+        this.rebuildViewModels();
+    }
+
+    handleKeyDown(event) {
+        // Ignore when a modifier key is held (e.g. Ctrl+R = browser refresh)
+        if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+        // Ignore when focus is inside an editable element (search box, inputs, etc.)
+        const path = event.composedPath ? event.composedPath() : [];
+        const activeEl = path[0] || event.target;
+        const tag = (activeEl?.tagName || '').toUpperCase();
+        if (['INPUT', 'TEXTAREA', 'SELECT'].includes(tag) || activeEl?.isContentEditable) return;
+
+        const key = event.key;
+
+        // Escape: close overlay or topmost open panel
+        if (key === 'Escape') {
+            if (this.showKeyboardShortcutOverlay) {
+                this.showKeyboardShortcutOverlay = false;
+                event.preventDefault();
+            } else if (this.pendingDeleteConfirm) {
+                this.handleCancelDelete();
+                event.preventDefault();
+            } else if (this.showCreateModal) {
+                this.handleCloseModal();
+                event.preventDefault();
+            } else if (this.showDrawer) {
+                this.handleCloseDrawer();
+                event.preventDefault();
+            }
             return;
         }
 
-        this.currentView = normalized.defaultView;
-        this.selectedStatus = normalized.defaultStatus || '';
+        // ? — toggle shortcut overlay
+        if (key === '?') {
+            this.showKeyboardShortcutOverlay = !this.showKeyboardShortcutOverlay;
+            event.preventDefault();
+            return;
+        }
 
+        // Don't intercept letter shortcuts when any modal/drawer is open
         if (
-            normalized.defaultCalendarViewId &&
-            (this.calendarDefinitions || []).some(
-                (row) => row.id === normalized.defaultCalendarViewId
-            )
+            this.showCreateModal ||
+            this.showDrawer ||
+            this.pendingDeleteConfirm ||
+            this.showGoogleConnectModal ||
+            this.showGoogleImportModal ||
+            this.showGoogleExportModal
         ) {
-            this.selectedCalendarId = normalized.defaultCalendarViewId;
-        } else if (
-            this.selectedCalendarId &&
-            !(this.calendarDefinitions || []).some((row) => row.id === this.selectedCalendarId)
-        ) {
-            this.selectedCalendarId = '';
+            return;
+        }
+
+        switch (key) {
+            case 't':
+            case 'T':
+                this.handleToday();
+                event.preventDefault();
+                break;
+            case 'm':
+            case 'M':
+                this._switchView('month');
+                event.preventDefault();
+                break;
+            case 'w':
+            case 'W':
+                this._switchView('week');
+                event.preventDefault();
+                break;
+            case 'd':
+            case 'D':
+                this._switchView('day');
+                event.preventDefault();
+                break;
+            case 'a':
+            case 'A':
+                this._switchView('agenda');
+                event.preventDefault();
+                break;
+            case 'n':
+            case 'N':
+                this.handleHeaderNewEvent();
+                event.preventDefault();
+                break;
+            case 'r':
+            case 'R':
+                this.handleRefresh();
+                event.preventDefault();
+                break;
+            case 'ArrowLeft':
+                this.handlePrev();
+                event.preventDefault();
+                break;
+            case 'ArrowRight':
+                this.handleNext();
+                event.preventDefault();
+                break;
+            default:
+                break;
+        }
+    }
+
+    _switchView(view) {
+        if (this.currentView !== view) {
+            this.currentView = view;
+            this.loadEvents();
+        }
+    }
+
+    handleKeyboardShortcutOverlayClose() {
+        this.showKeyboardShortcutOverlay = false;
+    }
+
+    _handleResize() {
+        const nowMobile = window.innerWidth <= 640;
+        if (nowMobile !== this._isMobile) {
+            this._isMobile = nowMobile;
+            this.rebuildViewModels();
+        }
+    }
+
+    handleTouchStart(event) {
+        if (event.touches.length !== 1) return;
+        this._touchStartX = event.touches[0].clientX;
+        this._touchStartY = event.touches[0].clientY;
+    }
+
+    handleTouchEnd(event) {
+        if (event.changedTouches.length !== 1) return;
+        const dx = event.changedTouches[0].clientX - this._touchStartX;
+        const dy = event.changedTouches[0].clientY - this._touchStartY;
+        // Only trigger if mostly horizontal and > 55px
+        if (Math.abs(dx) < 55 || Math.abs(dx) < Math.abs(dy) * 1.5) return;
+        if (dx < 0) {
+            this.handleNext();
+        } else {
+            this.handlePrev();
         }
     }
 
@@ -996,6 +920,25 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         });
 
         this.rebuildViewModels();
+    }
+
+    async handleLegendColorChange(event) {
+        const calendarId = event.detail?.calendarId;
+        const color = event.detail?.color;
+        if (!calendarId || !color) {
+            return;
+        }
+
+        await this.updateCalendarColorOverride(calendarId, color);
+    }
+
+    async handleLegendColorReset(event) {
+        const calendarId = event.detail?.calendarId;
+        if (!calendarId) {
+            return;
+        }
+
+        await this.updateCalendarColorOverride(calendarId, null);
     }
 
     async handleUserLayoutPreferenceChanged(event) {
@@ -1021,294 +964,25 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
     handleViewChange(event) {
         this.currentView = event.detail;
+        const viewLabel = (this.viewOptions.find((v) => v.value === this.currentView) || {}).label || this.currentView;
+        this._announce(`Now showing ${viewLabel} view`);
         this.loadEvents();
     }
 
     handleCalendarChange(event) {
         this.selectedCalendarId = event.detail;
-        this.syncStatus = '';
-        this.syncMessage = '';
-        this.googleImportStatus = '';
-        this.googleImportMessage = '';
-        this.showGoogleConnectModal = false;
-        this.showGoogleImportModal = false;
-        this.showGoogleExportModal = false;
-        this.calendarViewWireData = undefined;
-        this.calendarViewWireError = undefined;
-        this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
+        resetGoogleSyncSelectionContext(this);
 
         this.loadEvents();
         this.loadGoogleConnectionState();
     }
 
-    async handleGoogleExportCalendarSelectionChange(event) {
-        if (!this.selectedCalendarId) {
-            return;
-        }
-
-        const googleCalendarId = event.detail?.value || event.target?.value || null;
-        this.isGoogleBusy = true;
-
-        try {
-            const result = await saveCalendarSelection({
-                calendarId: this.selectedCalendarId,
-                googleCalendarId
-            });
-
-            this.syncStatus = result?.success ? 'Configured' : 'Error';
-            this.syncMessage = result?.message || '';
-
-            this.showToast(
-                'Google Calendar',
-                this.syncMessage || 'Google calendar selection saved.',
-                result?.success ? 'success' : 'error'
-            );
-        } catch (error) {
-            const message = this.extractErrorMessage(error);
-            this.syncStatus = 'Error';
-            this.syncMessage = message;
-            this.showToast('Google Calendar Error', message, 'error');
-        } finally {
-            this.isGoogleBusy = false;
-            await this.loadGoogleConnectionState();
-        }
+    async handleGoogleToolbarEvent(event) {
+        await routeGoogleToolbarEventFn(this, event);
     }
 
-    async handleGoogleImportCalendarSelectionChange(event) {
-        if (!this.selectedCalendarId) {
-            return;
-        }
-
-        const googleCalendarIds = Array.isArray(event.detail?.value)
-            ? event.detail.value
-            : Array.isArray(event.detail)
-                ? event.detail
-                : [];
-        this.isGoogleBusy = true;
-
-        try {
-            const result = await saveImportCalendarSelections({
-                calendarId: this.selectedCalendarId,
-                googleCalendarIds
-            });
-
-            this.googleImportStatus = result?.success ? 'Configured' : 'Error';
-            this.googleImportMessage = result?.message || '';
-
-            this.showToast(
-                'Google Import Calendars',
-                this.googleImportMessage || 'Google import calendar selection saved.',
-                result?.success ? 'success' : 'error'
-            );
-        } catch (error) {
-            const message = this.extractErrorMessage(error);
-            this.googleImportStatus = 'Error';
-            this.googleImportMessage = message;
-            this.showToast('Google Import Calendar Error', message, 'error');
-        } finally {
-            this.isGoogleBusy = false;
-            await this.loadGoogleConnectionState();
-        }
-    }
-
-    async handleGoogleConnectionRefresh() {
-        this.syncStatus = '';
-        this.syncMessage = '';
-        this.googleImportStatus = '';
-        this.googleImportMessage = '';
-        await this.loadGoogleConnectionState();
-    }
-
-    handleGoogleImportModalClose() {
-        this.showGoogleImportModal = false;
-        this.googleImportModalCalendarId = this.isGoogleSyncCalendarId(this.selectedCalendarId)
-            ? this.selectedCalendarId
-            : '';
-    }
-
-    handleGoogleExportModalClose() {
-        this.showGoogleExportModal = false;
-        this.googleExportModalCalendarId = this.isGoogleSyncCalendarId(this.selectedCalendarId)
-            ? this.selectedCalendarId
-            : '';
-    }
-
-
-    handleGoogleImportModalCalendarChange(event) {
-        this.googleImportModalCalendarId = event.detail?.value || event.target?.value || '';
-    }
-
-    handleGoogleExportModalCalendarChange(event) {
-        this.googleExportModalCalendarId = event.detail?.value || event.target?.value || '';
-    }
-
-    async handleGoogleImportModalLaunch() {
-        await this.startGoogleConnect();
-    }
-
-    async handleGoogleExportModalLaunch() {
-        await this.startGoogleConnect();
-    }
-
-    async handleGoogleImportModalRefresh() {
-        await this.handleGoogleConnectionRefresh();
-
-        if (this.googleConnection.connected) {
-            this.showToast('Google Connect', 'Google connection is ready.', 'success');
-        }
-    }
-
-    async handleGoogleExportModalRefresh() {
-        await this.handleGoogleConnectionRefresh();
-
-        if (this.googleConnection.connected) {
-            this.showToast('Google Connect', 'Google connection is ready.', 'success');
-        }
-    }
-
-    async handleGoogleImportModalContinue() {
-        if (!this.isGoogleImportModalCalendarSelected) {
-            this.showToast(
-                'Salesforce Calendar',
-                'Choose which Salesforce Team Calendar should receive imported Google events.',
-                'warning'
-            );
-            return;
-        }
-
-        if (!this.isGoogleImportModalUsingCurrentCalendar) {
-            this.selectedCalendarId = this.resolvedGoogleImportModalCalendarId;
-            this.syncStatus = '';
-            this.syncMessage = '';
-            this.googleImportStatus = '';
-            this.googleImportMessage = '';
-            this.calendarViewWireData = undefined;
-            this.calendarViewWireError = undefined;
-            this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
-
-            await Promise.all([this.loadEvents(), this.loadGoogleConnectionState()]);
-            return;
-        }
-
-        if (!this.googleConnection.configured) {
-            this.showToast(
-                'Google Setup',
-                'Google connection settings are unavailable right now.',
-                'warning'
-            );
-            return;
-        }
-
-        if (!this.googleConnection.connected) {
-            this.showToast(
-                'Google Connect',
-                'Complete the Google connection step first.',
-                'warning'
-            );
-            return;
-        }
-
-        if (!this.selectedGoogleImportCalendarIds.length) {
-            this.showToast(
-                'Google Import',
-                'Choose at least one Google calendar before importing into Salesforce.',
-                'warning'
-            );
-            return;
-        }
-
-        this.showGoogleImportModal = false;
-        await this.runGoogleImportSync();
-    }
-
-    async handleGoogleExportModalContinue() {
-        if (!this.isGoogleExportModalCalendarSelected) {
-            this.showToast(
-                'Salesforce Calendar',
-                'Choose which Salesforce Team Calendar should sync out to Google.',
-                'warning'
-            );
-            return;
-        }
-
-        if (!this.isGoogleExportModalUsingCurrentCalendar) {
-            this.selectedCalendarId = this.resolvedGoogleExportModalCalendarId;
-            this.syncStatus = '';
-            this.syncMessage = '';
-            this.googleImportStatus = '';
-            this.googleImportMessage = '';
-            this.calendarViewWireData = undefined;
-            this.calendarViewWireError = undefined;
-            this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
-
-            await Promise.all([this.loadEvents(), this.loadGoogleConnectionState()]);
-            return;
-        }
-
-        if (!this.googleConnection.connected) {
-            this.showToast(
-                'Google Connect',
-                'Complete the Google connection step first.',
-                'warning'
-            );
-            return;
-        }
-
-        if (!this.googleConnection.googleCalendarId) {
-            this.showToast(
-                'Google Calendar',
-                'Choose which Google calendar should receive Salesforce events.',
-                'warning'
-            );
-            return;
-        }
-
-        this.showGoogleExportModal = false;
-        await this.runGoogleSync();
-    }
-
-    handleGoogleConnectRequest() {
-        if (!this.selectedCalendarId) {
-            this.showToast('Google', 'Select a calendar first.', 'error');
-            return;
-        }
-
-        if (this.isCalendarViewBackedSelection) {
-            this.showToast(
-                'Calendar View',
-                'Google Sync only applies to Team Calendar event calendars, not Salesforce CalendarView list views.',
-                'info'
-            );
-            return;
-        }
-
-        if (!this.googleConnection.configured) {
-            this.showToast(
-                'Google Setup',
-                'Google connection settings are unavailable right now.',
-                'warning'
-            );
-            return;
-        }
-
-        this.showGoogleConnectModal = true;
-    }
-
-    handleGoogleConnectModalClose() {
-        this.showGoogleConnectModal = false;
-    }
-
-    async handleGoogleConnectModalLaunch() {
-        await this.startGoogleConnect();
-    }
-
-    async handleGoogleConnectModalRefresh() {
-        await this.handleGoogleConnectionRefresh();
-
-        if (this.googleConnection.connected) {
-            this.showGoogleConnectModal = false;
-            this.showToast('Google Connect', 'Google connection is ready.', 'success');
-        }
+    async handleGoogleModalEvent(event) {
+        await routeGoogleModalEventFn(this, event);
     }
 
     handleStatusChange(event) {
@@ -1387,16 +1061,21 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     handleGeneratePdf() {
-        if (this.isLoading) {
-            this.showToast('Generate PDF', 'Wait for the calendar to finish loading.', 'warning');
-            return;
-        }
+        handleGeneratePdfFn(this);
+    }
 
-        try {
-            this.submitPdfExportForm();
-        } catch (error) {
-            this.showToast('Generate PDF', this.extractErrorMessage(error), 'error');
-        }
+    handleExportCsv() {
+        handleExportCsvFn(this, this.filteredEvents, {
+            scope: 'visible',
+            fileLabel: this.rangeLabel
+        });
+    }
+
+    handleExportIcal() {
+        handleExportIcalFn(this, this.filteredEvents, {
+            scope: 'visible',
+            fileLabel: this.rangeLabel
+        });
     }
 
     handlePrev() {
@@ -1411,7 +1090,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         }
 
         this.currentDate = nextDate;
-        this.loadEvents();
+        this._debouncedLoadEvents();
     }
 
     handleNext() {
@@ -1426,90 +1105,34 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         }
 
         this.currentDate = nextDate;
-        this.loadEvents();
+        this._debouncedLoadEvents();
     }
 
-    submitPdfExportForm() {
-        const host = this.template.querySelector('[data-export-form-host]');
-        if (!host) {
-            throw new Error('PDF export form host is unavailable.');
+    _debouncedLoadEvents() {
+        if (this._navDebounceTimer) {
+            clearTimeout(this._navDebounceTimer);
         }
-
-        while (host.firstChild) {
-            host.removeChild(host.firstChild);
-        }
-
-        const exportForm = this.ownerDocument.createElement('form');
-        exportForm.action = this.pdfExportPageUrl || '/apex/TeamCalendarPdfExport';
-        exportForm.method = 'post';
-        exportForm.target = '_blank';
-        exportForm.style.display = 'none';
-
-        const fieldValues = {
-            view: this.currentView,
-            currentDate: this.formatDateParam(this.currentDate),
-            documentTitle: `Team Calendar - ${this.rangeLabel}`,
-            rangeLabel: this.rangeLabel,
-            calendarId: this.selectedCalendarId || '',
-            calendarLabel: this.getSelectedCalendarLabel(),
-            statusFilter: this.selectedStatus || '',
-            statusLabel: this.getSelectedStatusLabel(),
-            selectedUserLabelText: this.getSelectedUserLabelText(),
-            showWeekends: String(this.showWeekends)
-        };
-
-        Object.entries(fieldValues).forEach(([name, value]) => {
-            const input = this.ownerDocument.createElement('input');
-            input.type = 'hidden';
-            input.name = name;
-            input.value = value ?? '';
-            exportForm.appendChild(input);
-        });
-
-        const eventsField = this.ownerDocument.createElement('textarea');
-        eventsField.name = 'eventsJson';
-        eventsField.value = JSON.stringify(this.events || []);
-        exportForm.appendChild(eventsField);
-
-        host.appendChild(exportForm);
-        exportForm.submit();
+        this._navDebounceTimer = setTimeout(() => {
+            this._navDebounceTimer = null;
+            this.loadEvents();
+        }, 250);
     }
 
-    formatDateParam(dateValue) {
-        if (!(dateValue instanceof Date) || Number.isNaN(dateValue.getTime())) {
-            return '';
-        }
-
-        const yearValue = dateValue.getFullYear();
-        const monthValue = String(dateValue.getMonth() + 1).padStart(2, '0');
-        const dayValue = String(dateValue.getDate()).padStart(2, '0');
-
-        return `${yearValue}-${monthValue}-${dayValue}`;
-    }
-
-    getSelectedCalendarLabel() {
-        if (!this.selectedCalendarId) {
-            return 'All Calendars';
-        }
-
-        return this.selectedCalendarDefinition?.name || 'Selected Calendar';
-    }
-
-    getSelectedStatusLabel() {
-        if (!this.selectedStatus) {
-            return 'All Statuses';
-        }
-
-        const matched = (this.statusOptions || []).find(
-            (option) => option.value === this.selectedStatus
+    handleMoreEvents(event) {
+        const dateKey = event.detail?.dateKey;
+        if (!dateKey) return;
+        // Parse YYYY-MM-DD at noon local time to avoid timezone boundary issues
+        const parts = dateKey.split('-');
+        const d = new Date(
+            parseInt(parts[0], 10),
+            parseInt(parts[1], 10) - 1,
+            parseInt(parts[2], 10),
+            12, 0, 0
         );
-
-        return matched?.label || this.selectedStatus;
-    }
-
-    getSelectedUserLabelText() {
-        const labels = this.selectedUsersDetailed.map((user) => user.label).filter(Boolean);
-        return labels.length ? labels.join(', ') : 'None';
+        this.currentDate = d;
+        this.currentView = 'day';
+        this._announce(`Expanded to Day view for ${dateKey}`);
+        this.loadEvents();
     }
 
     handleHeaderNewEvent() {
@@ -1525,6 +1148,79 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.defaultStart = selectedDate;
         this.defaultEnd = selectedDate;
         this.openCreateFlow();
+    }
+
+    handleGridQuickCreate(event) {
+        this.closeEventContextMenu();
+        const { dateKey, anchorRect } = event.detail || {};
+        if (!dateKey) return;
+        const defaultCal =
+            (this.calendarDefinitions || []).find((r) => r.canCreate === true)?.id || '';
+        this._quickCreate = {
+            dateKey,
+            anchorRect,
+            title: '',
+            calendarId: this.selectedCalendarId || defaultCal,
+            isSaving: false
+        };
+    }
+
+    handleQuickCreateTitleChange(event) {
+        if (!this._quickCreate) return;
+        this._quickCreate = { ...this._quickCreate, title: event.target.value };
+    }
+
+    handleQuickCreateCalendarChange(event) {
+        if (!this._quickCreate) return;
+        this._quickCreate = { ...this._quickCreate, calendarId: event.detail.value };
+    }
+
+    handleQuickCreateClose() {
+        this._quickCreate = null;
+    }
+
+    handleQuickCreateMoreDetails() {
+        if (!this._quickCreate) return;
+        const { dateKey } = this._quickCreate;
+        this._quickCreate = null;
+        this.defaultStart = dateKey;
+        this.defaultEnd = dateKey;
+        this.openCreateFlow();
+    }
+
+    async handleQuickCreateSave() {
+        if (!this._quickCreate || this._quickCreate.isSaving) return;
+        const title = (this._quickCreate.title || '').trim();
+        if (!title) {
+            this.showToast('Title required', 'Please enter an event title before saving.', 'warning');
+            return;
+        }
+        const calendarId = this._quickCreate.calendarId || this.selectedCalendarId;
+        const dateKey = this._quickCreate.dateKey;
+        this._quickCreate = { ...this._quickCreate, isSaving: true };
+
+        try {
+            const request = {
+                primaryEvent: {
+                    name: title,
+                    calendarId,
+                    startValue: dateKey,
+                    endValue: dateKey,
+                    allDay: true,
+                    status: 'Planned'
+                },
+                followUpEvents: []
+            };
+            await createCalendarEventSeries({ requestJson: JSON.stringify(request) });
+            this._quickCreate = null;
+            this._announce(`Event "${title}" created.`);
+            this._invalidateCache();
+            await this.loadEvents();
+        } catch (err) {
+            this._quickCreate = { ...this._quickCreate, isSaving: false };
+            const msg = err?.body?.message || err?.message || 'Unknown error';
+            this.showToast('Could not save event', msg, 'error');
+        }
     }
 
     async handleEventDrop(event) {
@@ -1552,8 +1248,16 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             await updateCalendarEvent({
                 requestJson: JSON.stringify(requestPayload)
             });
+            this._invalidateCache();
             await this.loadEvents();
-            this.showToast('Event Moved', `${eventRecord.name} was moved to ${formatMoveTargetLabel(targetDateKey)}.`, 'success');
+            const moveLabel = `${eventRecord.name} was moved to ${formatMoveTargetLabel(targetDateKey)}.`;
+            const moveMutation = this.buildMoveMutation(eventRecord, requestPayload, targetDateKey);
+            if (moveMutation) {
+                registerMutationFn(this, moveMutation);
+            } else {
+                this.showToast('Event Moved', moveLabel, 'success');
+            }
+            this._announce(moveLabel);
         } catch (error) {
             this.showToast('Move Event Error', this.extractErrorMessage(error), 'error');
         } finally {
@@ -1719,6 +1423,11 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             return;
         }
 
+        if (actionType === 'export-csv' || actionType === 'export-ical') {
+            this.handleContextMenuExport(actionType);
+            return;
+        }
+
         if (actionType === 'open-record') {
             this.closeEventContextMenu();
             this.navigateToRecord(
@@ -1726,6 +1435,38 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 event.currentTarget.dataset.objectApiName || null
             );
         }
+    }
+
+    handleContextMenuExport(actionType) {
+        const recordId = this.activeEventMenu?.recordId;
+        const recordContextId = this.activeEventMenu?.recordContextId || null;
+        const eventRecord = this.findEventRecord(recordId, recordContextId);
+
+        if (!eventRecord) {
+            this.closeEventContextMenu();
+            this.showToast(
+                'Export unavailable',
+                'The selected event is no longer available for export.',
+                'warning'
+            );
+            return;
+        }
+
+        const fileLabel = this.activeEventMenu?.recordName || eventRecord.name || 'event';
+        this.closeEventContextMenu();
+
+        if (actionType === 'export-csv') {
+            handleExportCsvFn(this, [eventRecord], {
+                scope: 'single',
+                fileLabel
+            });
+            return;
+        }
+
+        handleExportIcalFn(this, [eventRecord], {
+            scope: 'single',
+            fileLabel
+        });
     }
 
     async handleDeleteEventClick() {
@@ -1736,12 +1477,20 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
 
         const recordName = this.activeEventMenu?.recordName || 'this event';
         const isTaskRecord = this.activeEventMenu?.recordObjectApiName === 'Task';
+        const eventRecord = this.findEventRecord(recordId, this.activeEventMenu?.recordContextId || null);
 
         this.pendingDeleteConfirm = {
             recordId,
             recordName,
             isTaskRecord,
             recordContextId: this.activeEventMenu?.recordContextId || null,
+            undoMutation: buildDeleteMutationFn({
+                recordId,
+                recordName,
+                isTaskRecord,
+                recordContextId: this.activeEventMenu?.recordContextId || null,
+                supportsUndo: isTaskRecord || eventRecord?.isRecurring !== true
+            }),
             message: `Delete ${isTaskRecord ? 'task' : 'event'} "${recordName}"?`
         };
     }
@@ -1758,7 +1507,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         }
 
         this.pendingDeleteConfirm = null;
-        const { recordId, recordName, isTaskRecord, recordContextId } = pending;
+        const { recordId, recordName, isTaskRecord, recordContextId, undoMutation } = pending;
 
         this.isDeletingEvent = true;
 
@@ -1778,8 +1527,15 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             }
 
             this.closeEventContextMenu();
+            this._invalidateCache();
             await this.loadEvents();
-            this.showToast(isTaskRecord ? 'Task Deleted' : 'Event Deleted', `${recordName} was deleted.`, 'success');
+            const deleteMsg = `${recordName} was deleted.`;
+            if (undoMutation) {
+                registerMutationFn(this, undoMutation);
+            } else {
+                this.showToast(isTaskRecord ? 'Task Deleted' : 'Event Deleted', deleteMsg, 'success');
+            }
+            this._announce(deleteMsg);
         } catch (error) {
             this.showToast(
                 isTaskRecord ? 'Delete Task Error' : 'Delete Event Error',
@@ -1821,7 +1577,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 variant
             })
         );
+        this._announce(message);
 
+        this._invalidateCache();
         await this.loadEvents();
     }
 
@@ -1833,6 +1591,19 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 variant: 'error'
             })
         );
+    }
+
+    async handleDrawerMutation(event) {
+        const mutation = event.detail;
+        if (!mutation) {
+            return;
+        }
+
+        this._skipNextDrawerReload = true;
+        this._invalidateCache();
+        await this.loadEvents();
+        registerMutationFn(this, mutation);
+        this._announce(mutation.message);
     }
 
     closeEventContextMenu() {
@@ -1866,6 +1637,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     async handleCloseDrawer() {
+        const shouldSkipReload = this._skipNextDrawerReload === true;
+        this._skipNextDrawerReload = false;
         this.showDrawer = false;
         this.selectedRecordId = null;
         this.selectedRecordObjectApiName = 'Calendar_Event__c';
@@ -1874,7 +1647,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.selectedRecordCanDelete = true;
         this.selectedRecordOccurrenceDate = null;
         this.selectedRecordIsRecurring = false;
-        await this.loadEvents();
+        if (!shouldSkipReload) {
+            await this.loadEvents();
+        }
     }
 
     openCreateFlow() {
@@ -1969,209 +1744,27 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     async loadGoogleConnectionState() {
-        if (!this.selectedCalendarId || this.isCalendarViewBackedSelection) {
-            this.googleConnection = createDefaultGoogleConnection();
-            this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
-            return;
-        }
-
-        try {
-            const state = await getConnectionState({ calendarId: this.selectedCalendarId });
-            this.googleConnection = createDefaultGoogleConnection(state || {});
-            await this.loadGoogleCalendarOptions();
-        } catch (error) {
-            this.googleConnection = createDefaultGoogleConnection({
-                status: 'Error',
-                message: this.extractErrorMessage(error)
-            });
-            this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
-        }
+        await loadGoogleConnectionStateFn(this);
     }
 
     async loadGoogleCalendarOptions() {
-        if (
-            !this.selectedCalendarId ||
-            this.isCalendarViewBackedSelection ||
-            !this.googleConnection.configured ||
-            !this.googleConnection.connected
-        ) {
-            this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
-            return;
-        }
-
-        try {
-            const rows = await listAvailableCalendars({ calendarId: this.selectedCalendarId });
-            this.googleCalendarOptions = [
-                { label: 'Select Google calendar', value: '' },
-                ...(Array.isArray(rows) ? rows : []).map((row) => ({
-                    label: row.primary ? `${row.label} (Primary)` : row.label,
-                    value: row.id
-                }))
-            ];
-        } catch (error) {
-            this.googleCalendarOptions = [{ label: 'Select Google calendar', value: '' }];
-            this.googleImportStatus = 'Error';
-            this.googleImportMessage = this.extractErrorMessage(error);
-        }
-    }
-
-    async handleGoogleImportAction() {
-        if (this.isCalendarViewBackedSelection) {
-            this.googleImportModalCalendarId = '';
-        } else {
-            this.googleImportModalCalendarId = this.isGoogleSyncCalendarId(this.selectedCalendarId)
-                ? this.selectedCalendarId
-                : '';
-        }
-
-        this.showGoogleImportModal = true;
-    }
-
-    async handleGoogleExportAction() {
-        this.googleExportModalCalendarId = this.isGoogleSyncCalendarId(this.selectedCalendarId)
-            ? this.selectedCalendarId
-            : '';
-        this.showGoogleExportModal = true;
+        await loadGoogleCalendarOptionsFn(this);
     }
 
     async handleGoogleDisconnect() {
-        if (!this.selectedCalendarId) {
-            return;
-        }
-
-        this.isGoogleBusy = true;
-
-        try {
-            const result = await disconnectGoogle({ calendarId: this.selectedCalendarId });
-
-            this.syncStatus = result?.success ? 'Disconnected' : 'Error';
-            this.syncMessage = result?.message || '';
-            this.googleImportStatus = this.syncStatus;
-            this.googleImportMessage = this.syncMessage;
-
-            this.showToast(
-                'Google Disconnect',
-                this.syncMessage || 'Google connection removed.',
-                result?.success ? 'success' : 'error'
-            );
-        } catch (error) {
-            const message = this.extractErrorMessage(error);
-            this.syncStatus = 'Error';
-            this.syncMessage = message;
-            this.googleImportStatus = 'Error';
-            this.googleImportMessage = message;
-            this.showToast('Google Disconnect Error', message, 'error');
-        } finally {
-            this.isGoogleBusy = false;
-            this.showGoogleConnectModal = false;
-            this.showGoogleImportModal = false;
-            this.showGoogleExportModal = false;
-            await this.loadGoogleConnectionState();
-        }
+        await handleGoogleDisconnectFn(this);
     }
 
     async startGoogleConnect() {
-        this.isGoogleBusy = true;
-
-        try {
-            const result = await getAuthenticationUrl({ calendarId: this.selectedCalendarId });
-            const authUrl = result?.authUrl;
-
-            if (!authUrl) {
-                throw new Error(result?.message || 'Google authentication URL was not returned.');
-            }
-
-            this.syncStatus = 'Authentication Required';
-            this.syncMessage = 'Complete Google sign-in in the new tab, then click I Finished Connecting.';
-            this.googleImportStatus = 'Authentication Required';
-            this.googleImportMessage = 'Complete Google sign-in in the new tab, then click I Finished Connecting.';
-
-            const popup = window.open(authUrl, '_blank', 'noopener');
-
-            if (!popup) {
-                this.showToast(
-                    'Google Connect',
-                    'Popup blocked. Allow popups for Salesforce and try again.',
-                    'warning'
-                );
-            } else {
-                this.showToast(
-                    'Google Connect',
-                    'Complete Google sign-in in the new tab, then return here and click I Finished Connecting.',
-                    'success'
-                );
-            }
-        } catch (error) {
-            const message = this.extractErrorMessage(error);
-            this.syncStatus = 'Error';
-            this.syncMessage = message;
-            this.googleImportStatus = 'Error';
-            this.googleImportMessage = message;
-            this.showToast('Google Connect Error', message, 'error');
-        } finally {
-            this.isGoogleBusy = false;
-        }
+        await startGoogleConnectFn(this);
     }
 
     async runGoogleImportSync() {
-        this.isGoogleBusy = true;
-
-        try {
-            const visibleRange = getVisibleRange(this.currentDate, this.currentView);
-            const result = await importEventsFromGoogle({
-                calendarId: this.selectedCalendarId,
-                start: visibleRange?.startDate || null,
-                endDate: visibleRange?.endDate || null
-            });
-
-            this.googleImportStatus = result?.success ? 'Imported' : 'Error';
-            this.googleImportMessage = result?.message || '';
-
-            this.showToast(
-                'Google Import',
-                this.googleImportMessage || 'Google events imported into Salesforce.',
-                result?.success ? 'success' : 'warning'
-            );
-
-            await this.loadEvents();
-        } catch (error) {
-            const message = this.extractErrorMessage(error);
-            this.googleImportStatus = 'Error';
-            this.googleImportMessage = message;
-            this.showToast('Google Import Error', message, 'error');
-        } finally {
-            this.isGoogleBusy = false;
-            await this.loadGoogleConnectionState();
-        }
+        await runGoogleImportSyncFn(this);
     }
 
     async runGoogleSync() {
-        this.isGoogleBusy = true;
-
-        try {
-            const result = await pushEventsForCalendar({
-                calendarId: this.selectedCalendarId,
-                start: null,
-                endDate: null
-            });
-
-            this.syncStatus = result?.success ? 'Queued' : 'Error';
-            this.syncMessage = result?.message || '';
-
-            this.showToast(
-                'Google Sync',
-                this.syncMessage || 'Google sync job queued.',
-                result?.success ? 'success' : 'warning'
-            );
-        } catch (error) {
-            const message = this.extractErrorMessage(error);
-            this.syncStatus = 'Error';
-            this.syncMessage = message;
-            this.showToast('Google Sync Error', message, 'error');
-        } finally {
-            this.isGoogleBusy = false;
-            await this.loadGoogleConnectionState();
-        }
+        await runGoogleSyncFn(this);
     }
 
     async loadCalendars() {
@@ -2248,6 +1841,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 grouped[assignedUserId].push({
                     id: normalizedRow.id,
                     label: normalizedRow.name,
+                    baseColor: normalizedRow.baseColor,
                     color: normalizedRow.color,
                     sourceScope: normalizedRow.sourceScope || 'Shared',
                     canCreate: normalizedRow.canCreate,
@@ -2356,6 +1950,7 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 const normalizedDefinition = this.normalizeCalendarDefinition({
                     id: calendar.id,
                     name: calendar.label,
+                    baseColor: calendar.baseColor || calendar.color,
                     color: calendar.color,
                     assignedUserId: userId,
                     sourceScope: calendar.sourceScope,
@@ -2462,12 +2057,63 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         return dedupeNormalizedEvents(merged);
     }
 
+    hasPendingCalendarViewPayloads(definitions) {
+        return (definitions || []).some((definition) => {
+            const isPrimarySelectedDefinition =
+                this.selectedCalendarDefinition &&
+                definition.id === this.selectedCalendarDefinition.id;
+
+            const hasError = isPrimarySelectedDefinition
+                ? Boolean(this.calendarViewWireError)
+                : Boolean(this.calendarViewErrorsById[definition.id]);
+
+            if (hasError) {
+                return false;
+            }
+
+            const payload = isPrimarySelectedDefinition
+                ? this.calendarViewWireData
+                : this.calendarViewPayloadsById[definition.id];
+
+            return !payload;
+        });
+    }
+
+    _buildCacheKey(visibleRange) {
+        const userIds = [...(this.selectedUserIds || [])].sort().join(',');
+        return [
+            this.selectedCalendarId || '',
+            this.selectedStatus || '',
+            userIds,
+            this.userCalendarSelectionJson || '',
+            visibleRange.startDate,
+            visibleRange.endDate
+        ].join('|');
+    }
+
+    _invalidateCache() {
+        this._eventCache.clear();
+    }
+
     async loadEvents() {
         const loadId = ++this.loadSequence;
+        const visibleRange = getVisibleRange(this.currentDate, this.currentView);
+        const cacheKey = this._buildCacheKey(visibleRange);
+        const now = Date.now();
+        const cached = this._eventCache.get(cacheKey);
+
+        if (cached && (now - cached.timestamp) < TeamCalendarBoard._CACHE_TTL_MS) {
+            // Serve from cache — no spinner, no Apex
+            if (loadId !== this.loadSequence) return;
+            this.events = cached.events;
+            this.rebuildViewModels();
+            this.error = undefined;
+            return;
+        }
+
         this.isLoading = true;
 
         try {
-            const visibleRange = getVisibleRange(this.currentDate, this.currentView);
             let nextEvents = [];
 
             if (!this.isCalendarViewBackedSelection) {
@@ -2495,6 +2141,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             );
             const nonTaskDefinitions = calendarViewDefinitions.filter(
                 (d) => !this.isTaskCalendarDefinition(d)
+            );
+            const hasPendingCalendarViewPayloads = this.hasPendingCalendarViewPayloads(
+                nonTaskDefinitions
             );
 
             if (nonTaskDefinitions.length) {
@@ -2535,6 +2184,9 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 return;
             }
 
+            if (!hasPendingCalendarViewPayloads) {
+                this._eventCache.set(cacheKey, { events: nextEvents, timestamp: Date.now() });
+            }
             this.events = nextEvents;
             this.rebuildViewModels();
             this.error = undefined;
@@ -2591,6 +2243,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.rebuildViewModels();
         this.error = undefined;
         this.isLoading = false;
+        const count = this.filteredEvents.length;
+        this._announce(`Showing ${count} event${count === 1 ? '' : 's'} for ${this.rangeLabel}`);
     }
 
     rebuildViewModels() {
@@ -2601,26 +2255,26 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         this.dayViewData = null;
 
         if (this.isDayView) {
-            this.dayViewData = buildDayViewData(this.currentDate, this.events);
+            this.dayViewData = buildDayViewData(this.currentDate, this.filteredEvents);
             return;
         }
 
         if (this.isAgendaView) {
-            this.agendaGroups = buildAgendaGroups(this.events);
+            this.agendaGroups = buildAgendaGroups(this.filteredEvents);
             return;
         }
 
         if (this.isTeamLoadView) {
-            this.teamLoadRows = this.buildTeamLoadRows(this.events);
+            this.teamLoadRows = this.buildTeamLoadRows(this.filteredEvents);
             return;
         }
 
         if (this.isConflictsView) {
-            this.conflictRows = this.buildConflictRows(this.events);
+            this.conflictRows = this.buildConflictRows(this.filteredEvents);
             return;
         }
 
-        this.weeks = buildCalendarWeeks(this.currentDate, this.currentView, this.events);
+        this.weeks = buildCalendarWeeks(this.currentDate, this.currentView, this.filteredEvents);
 
         if (!this.showWeekends) {
             this.weeks = (this.weeks || []).map((week) => {
@@ -2731,6 +2385,11 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
     }
 
     normalizeEvent(row) {
+        const calendarKey = row.calendarId || row.recordContextId || null;
+        const baseCalendarColor = this.normalizeCalendarColor(
+            row.baseCalendarColor || row.calendarColor,
+            '#0176d3'
+        );
         const recordObjectApiName =
             row.recordObjectApiName || this.resolveRecordObjectApiName(row.recordContextId || row.calendarId);
         const canEdit = row.canEdit !== undefined ? row.canEdit : recordObjectApiName === 'Calendar_Event__c';
@@ -2749,7 +2408,8 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
             ...row,
             start: row.start,
             endDateTime: row.endDateTime || row.end || null,
-            calendarColor: this.normalizeCalendarColor(row.calendarColor),
+            baseCalendarColor,
+            calendarColor: this.resolveCalendarDisplayColor(calendarKey, baseCalendarColor),
             recordObjectApiName,
             recordContextId: row.recordContextId || row.calendarId || null,
             contextLinks: Array.isArray(row.contextLinks) ? row.contextLinks : [],
@@ -2769,13 +2429,116 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
         };
     }
 
-    normalizeCalendarColor(rawColor) {
+    normalizeCalendarColor(rawColor, fallbackColor = '#0176d3') {
         if (!rawColor) {
-            return '#0176d3';
+            return fallbackColor;
         }
 
-        const normalized = String(rawColor).trim();
-        return normalized.startsWith('#') ? normalized : `#${normalized}`;
+        const normalized = String(rawColor).trim().toLowerCase();
+        if (!normalized) {
+            return fallbackColor;
+        }
+
+        const withHash = normalized.startsWith('#') ? normalized : `#${normalized}`;
+        return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(withHash) ? withHash : fallbackColor;
+    }
+
+    resolveCalendarDisplayColor(calendarId, baseColor) {
+        const overrideColor = calendarId
+            ? this.userLayoutPreference?.calendarColorOverrides?.[calendarId]
+            : null;
+
+        return this.normalizeCalendarColor(overrideColor || baseColor, '#0176d3');
+    }
+
+    refreshCalendarColorsFromPreference() {
+        if (Array.isArray(this.calendarDefinitions) && this.calendarDefinitions.length) {
+            this.calendarDefinitions = this.calendarDefinitions.map((row) =>
+                this.normalizeCalendarDefinition(row)
+            );
+        }
+
+        if (this.userCalendarsByUser && Object.keys(this.userCalendarsByUser).length) {
+            const nextUserCalendarsByUser = {};
+
+            Object.keys(this.userCalendarsByUser).forEach((userId) => {
+                nextUserCalendarsByUser[userId] = (this.userCalendarsByUser[userId] || []).map((row) => ({
+                    ...row,
+                    baseColor: this.normalizeCalendarColor(row.baseColor || row.color, '#0176d3'),
+                    color: this.resolveCalendarDisplayColor(
+                        row.id,
+                        this.normalizeCalendarColor(row.baseColor || row.color, '#0176d3')
+                    )
+                }));
+            });
+
+            this.userCalendarsByUser = nextUserCalendarsByUser;
+        }
+
+        if (Array.isArray(this.events) && this.events.length) {
+            this.events = this.events.map((row) => this.normalizeEvent(row));
+        }
+
+        this.rebuildViewModels();
+    }
+
+    buildUserLayoutPreferencePayload(preference = this.userLayoutPreference) {
+        return {
+            ...preference,
+            defaultCalendarViewId: preference?.defaultCalendarViewId || null,
+            calendarColorOverrides: preference?.calendarColorOverrides || {}
+        };
+    }
+
+    async updateCalendarColorOverride(calendarId, requestedColor) {
+        const previousPreference = normalizeLayoutPreference(this.userLayoutPreference);
+        const nextOverrides = {
+            ...(previousPreference.calendarColorOverrides || {})
+        };
+        const normalizedDefaultColor = this.normalizeCalendarColor(
+            this.calendarDefinitions.find((row) => row.id === calendarId)?.baseColor,
+            '#0176d3'
+        );
+        const normalizedRequestedColor = requestedColor
+            ? this.normalizeCalendarColor(requestedColor, null)
+            : null;
+
+        if (!normalizedRequestedColor || normalizedRequestedColor === normalizedDefaultColor) {
+            delete nextOverrides[calendarId];
+        } else {
+            nextOverrides[calendarId] = normalizedRequestedColor;
+        }
+
+        const nextPreference = normalizeLayoutPreference({
+            ...previousPreference,
+            calendarColorOverrides: nextOverrides
+        });
+
+        this.applyUserLayoutPreference(nextPreference, { applySelections: false });
+        this._invalidateCache();
+
+        const saveSequence = ++this.legendColorSaveSequence;
+
+        try {
+            const savedPreference = await saveCurrentUserLayoutPreference({
+                preferenceJson: JSON.stringify(this.buildUserLayoutPreferencePayload(nextPreference))
+            });
+
+            if (saveSequence !== this.legendColorSaveSequence) {
+                return;
+            }
+
+            this.applyUserLayoutPreference(savedPreference, { applySelections: false });
+            this._announce('Calendar color preference saved.');
+        } catch (error) {
+            if (saveSequence !== this.legendColorSaveSequence) {
+                return;
+            }
+
+            this.applyUserLayoutPreference(previousPreference, { applySelections: false });
+            this._invalidateCache();
+            this.showToast('Calendar Colors', this.extractErrorMessage(error), 'error');
+        }
     }
 
     isWeekendDay(day) {
@@ -2947,5 +2710,58 @@ export default class TeamCalendarBoard extends NavigationMixin(LightningElement)
                 variant
             })
         );
+    }
+
+    buildCalendarEventPayloadFromRecord(eventRecord) {
+        if (!eventRecord) {
+            return null;
+        }
+
+        return {
+            recordId: eventRecord.id,
+            calendarId: eventRecord.calendarId || null,
+            name: eventRecord.name || '',
+            startValue: eventRecord.start || null,
+            endValue: eventRecord.endDateTime || eventRecord.end || eventRecord.start || null,
+            allDay: eventRecord.allDay === true,
+            status: eventRecord.status || 'Planned',
+            notes: eventRecord.notes || ''
+        };
+    }
+
+    buildMoveMutation(eventRecord, nextPayload, targetDateKey) {
+        const previousPayload = this.buildCalendarEventPayloadFromRecord(eventRecord);
+        if (!previousPayload || eventRecord?.isRecurring === true) {
+            return null;
+        }
+
+        const recordName = eventRecord.name || 'Event';
+        return {
+            mutationType: 'calendar-update',
+            recordId: eventRecord.id,
+            recordName,
+            previousPayload,
+            nextPayload,
+            message: `${recordName} was moved to ${formatMoveTargetLabel(targetDateKey)}.`,
+            undoMessage: `Undid move for ${recordName}.`,
+            redoMessage: `Moved ${recordName} back to ${formatMoveTargetLabel(targetDateKey)}.`
+        };
+    }
+
+    async handleMutationNoticeAction() {
+        await handleMutationNoticeActionFn(this);
+    }
+
+    dismissMutationNotice() {
+        dismissMutationNoticeFn(this);
+    }
+
+    _announce(message) {
+        // Clear first so the same message re-triggers the live region
+        this._ariaMessage = '';
+        // eslint-disable-next-line @lwc/lwc/no-async-operation
+        setTimeout(() => {
+            this._ariaMessage = message;
+        }, 50);
     }
 }

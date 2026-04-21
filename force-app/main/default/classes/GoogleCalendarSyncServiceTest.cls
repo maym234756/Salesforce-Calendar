@@ -272,6 +272,107 @@ private class GoogleCalendarSyncServiceTest {
     }
 
     @IsTest
+    static void pushChangedEventsForCalendar_onlyQueuesUnsyncedChangedOrErroredEvents() {
+        Team_Calendar__c calendarRow = createCalendar('Scheduled Queue Calendar', true, 'scheduled@example.com');
+
+        Calendar_Event__c unsyncedEvent = createEvent(
+            'Unsynced Event',
+            calendarRow.Id,
+            dt(2026, 4, 12, 9, 0),
+            dt(2026, 4, 12, 10, 0),
+            false,
+            'Planned',
+            null,
+            'Needs first sync'
+        );
+        Calendar_Event__c syncedEvent = createEvent(
+            'Already Synced Event',
+            calendarRow.Id,
+            dt(2026, 4, 12, 11, 0),
+            dt(2026, 4, 12, 12, 0),
+            false,
+            'Confirmed',
+            'stable-google-id',
+            'Already synced'
+        );
+        Calendar_Event__c erroredEvent = createEvent(
+            'Errored Event',
+            calendarRow.Id,
+            dt(2026, 4, 12, 13, 0),
+            dt(2026, 4, 12, 14, 0),
+            false,
+            'Confirmed',
+            null,
+            'Retry me'
+        );
+        Calendar_Event__c outOfRangeEvent = createEvent(
+            'Out Of Range Event',
+            calendarRow.Id,
+            dt(2026, 5, 12, 9, 0),
+            dt(2026, 5, 12, 10, 0),
+            false,
+            'Planned',
+            null,
+            'Outside the scheduled window'
+        );
+        insert new List<Calendar_Event__c>{
+            unsyncedEvent,
+            syncedEvent,
+            erroredEvent,
+            outOfRangeEvent
+        };
+
+        syncedEvent.Last_Synced_At__c = System.now();
+        syncedEvent.Sync_Status__c = 'Synced';
+        syncedEvent.Sync_Error__c = null;
+        syncedEvent.Sync_Source__c = 'Salesforce';
+
+        erroredEvent.Last_Synced_At__c = System.now();
+        erroredEvent.Sync_Status__c = 'Error';
+        erroredEvent.Sync_Error__c = 'Previous failure';
+        erroredEvent.Sync_Source__c = 'Salesforce';
+        update new List<Calendar_Event__c>{ syncedEvent, erroredEvent };
+
+        Test.setMock(HttpCalloutMock.class, new GoogleCalendarMock(200, 'scheduled-google-id', false, 'POST'));
+
+        Test.startTest();
+        GoogleCalendarSyncService.SyncResult result =
+            GoogleCalendarSyncService.pushChangedEventsForCalendar(
+                calendarRow.Id,
+                dt(2026, 4, 1, 0, 0),
+                dt(2026, 4, 30, 0, 0)
+            );
+        Test.stopTest();
+
+        System.assertEquals(true, result.success);
+        System.assertEquals(2, result.processedCount);
+        System.assert(result.message.contains('2 changed event'));
+
+        Map<Id, Calendar_Event__c> refreshedById = new Map<Id, Calendar_Event__c>([
+            SELECT External_Event_Id__c, Sync_Status__c, Sync_Error__c
+            FROM Calendar_Event__c
+            WHERE Id IN :new List<Id>{
+                unsyncedEvent.Id,
+                syncedEvent.Id,
+                erroredEvent.Id,
+                outOfRangeEvent.Id
+            }
+        ]);
+
+        System.assertEquals('scheduled-google-id', refreshedById.get(unsyncedEvent.Id).External_Event_Id__c);
+        System.assertEquals('Synced', refreshedById.get(unsyncedEvent.Id).Sync_Status__c);
+
+        System.assertEquals('stable-google-id', refreshedById.get(syncedEvent.Id).External_Event_Id__c);
+        System.assertEquals('Synced', refreshedById.get(syncedEvent.Id).Sync_Status__c);
+
+        System.assertEquals('scheduled-google-id', refreshedById.get(erroredEvent.Id).External_Event_Id__c);
+        System.assertEquals('Synced', refreshedById.get(erroredEvent.Id).Sync_Status__c);
+        System.assertEquals(null, refreshedById.get(erroredEvent.Id).Sync_Error__c);
+
+        System.assertEquals(null, refreshedById.get(outOfRangeEvent.Id).External_Event_Id__c);
+    }
+
+    @IsTest
     static void importEventsFromGoogle_createsAndUpdatesSalesforceEvents() {
         Team_Calendar__c calendarRow = createCalendar('Import Calendar', true, 'outbound@example.com');
         calendarRow.Google_Import_Calendar_Ids__c = '["primary","team@example.com"]';

@@ -9,11 +9,19 @@ import saveUserCalendarAccess from '@salesforce/apex/TeamCalendarSecurityControl
 import getUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityController.getUserLayoutPreference';
 import saveUserLayoutPreference from '@salesforce/apex/TeamCalendarSecurityController.saveUserLayoutPreference';
 import setLayoutFieldForAllUsers from '@salesforce/apex/TeamCalendarSecurityController.setLayoutFieldForAllUsers';
+import getEventTemplatesForAdmin from '@salesforce/apex/TeamCalendarEventTemplateService.getEventTemplatesForAdmin';
+import getTemplateCalendars from '@salesforce/apex/TeamCalendarEventTemplateService.getTemplateCalendars';
+import saveEventTemplate from '@salesforce/apex/TeamCalendarEventTemplateService.saveEventTemplate';
+import deleteEventTemplate from '@salesforce/apex/TeamCalendarEventTemplateService.deleteEventTemplate';
 
 import {
     ACCESS_TAB,
     LAYOUT_TAB,
     LAYOUT_FIELD_LABELS,
+    createDefaultEventTemplateDraft,
+    normalizeEventTemplateDraft,
+    normalizeEventTemplateRow,
+    buildEventTemplateSummary,
     createDefaultLayoutDraft,
     normalizeLayoutDraft,
     normalizeAccessRow,
@@ -32,18 +40,80 @@ import {
     buildApprovedSelectedUsersCountLabel
 } from './calendarSecurityManagerHelpers';
 
+function getEventDatasetValue(event, keyName) {
+    const directValue =
+        event?.currentTarget?.dataset?.[keyName] ||
+        event?.target?.dataset?.[keyName] ||
+        '';
+
+    if (directValue) {
+        return directValue;
+    }
+
+    if (typeof event?.composedPath === 'function') {
+        const pathMatch = event
+            .composedPath()
+            .find((node) => node?.dataset?.[keyName]);
+
+        return pathMatch?.dataset?.[keyName] || '';
+    }
+
+    return '';
+}
+
+function getEventSource(event) {
+    const directSource = event?.currentTarget || event?.target || null;
+
+    if (directSource?.checked !== undefined || directSource?.value !== undefined) {
+        return directSource;
+    }
+
+    if (typeof event?.composedPath === 'function') {
+        const pathMatch = event
+            .composedPath()
+            .find((node) => node?.checked !== undefined || node?.value !== undefined);
+
+        if (pathMatch) {
+            return pathMatch;
+        }
+    }
+
+    return {};
+}
+
+function getEventValue(event) {
+    const source = getEventSource(event);
+
+    if (source.type === 'checkbox' || source.checked !== undefined) {
+        return source.checked === true;
+    }
+
+    if (
+        event?.detail &&
+        Object.prototype.hasOwnProperty.call(event.detail, 'value')
+    ) {
+        return event.detail.value;
+    }
+
+    return source.value ?? '';
+}
+
 export default class CalendarSecurityManager extends LightningElement {
     users = [];
     calendarViews = [];
     allAccessRows = [];
+    eventTemplates = [];
+    templateCalendars = [];
 
     selectedUserId;
     selectedUserName = '';
+    selectedTemplateId = '';
 
     userSearch = '';
     calendarSearch = '';
     ownerFilter = '';
     approvedSelectedUsersSearch = '';
+    templateSearch = '';
     showOnlySelectedOwnerViews = false;
     showOnlyActiveAccess = false;
     showOnlyGrantedAccess = false;
@@ -56,6 +126,7 @@ export default class CalendarSecurityManager extends LightningElement {
 
     activeTab = ACCESS_TAB;
     layoutDraft = createDefaultLayoutDraft();
+    templateDraft = createDefaultEventTemplateDraft();
 
     canManage = false;
     layoutDraftsByUser = {};
@@ -72,15 +143,27 @@ export default class CalendarSecurityManager extends LightningElement {
                 return;
             }
 
-            const [users, calendarViews] = await Promise.all([
+            const [users, calendarViews, eventTemplates, templateCalendars] = await Promise.all([
                 getSecurityUsers(),
-                getCalendarViewsForSecurity()
+                getCalendarViewsForSecurity(),
+                getEventTemplatesForAdmin(),
+                getTemplateCalendars()
             ]);
 
             this.users = Array.isArray(users) ? users : [];
             this.calendarViews = Array.isArray(calendarViews)
                 ? calendarViews.map(normalizeCalendarView)
                 : [];
+            this.eventTemplates = Array.isArray(eventTemplates)
+                ? eventTemplates.map(normalizeEventTemplateRow)
+                : [];
+            this.templateCalendars = Array.isArray(templateCalendars)
+                ? templateCalendars
+                : [];
+
+            if (this.eventTemplates.length) {
+                this.selectTemplate(this.eventTemplates[0].id);
+            }
 
             if (this.users.length > 0 && !this.selectedUserId) {
                 await this.loadUserAccess(this.users[0].id);
@@ -432,6 +515,57 @@ export default class CalendarSecurityManager extends LightningElement {
         return buildLayoutActivationSummary(this.layoutDraft);
     }
 
+    get templateCalendarOptions() {
+        const options = [{ label: 'Select a Team Calendar', value: '' }];
+
+        (this.templateCalendars || []).forEach((row) => {
+            options.push({
+                label: row.ownerName ? `${row.name} (${row.ownerName})` : row.name,
+                value: row.id
+            });
+        });
+
+        return options;
+    }
+
+    get filteredEventTemplates() {
+        const search = (this.templateSearch || '').trim().toLowerCase();
+
+        return (this.eventTemplates || [])
+            .filter((row) => {
+                if (!search) {
+                    return true;
+                }
+
+                return (
+                    (row.name || '').toLowerCase().includes(search) ||
+                    (row.calendarName || '').toLowerCase().includes(search) ||
+                    (row.notes || '').toLowerCase().includes(search)
+                );
+            })
+            .map((row) => ({
+                ...row,
+                summary: buildEventTemplateSummary(row),
+                rowClass:
+                    row.id === this.selectedTemplateId
+                        ? 'security-template-list__item security-template-list__item--selected'
+                        : 'security-template-list__item'
+            }));
+    }
+
+    get hasFilteredEventTemplates() {
+        return this.filteredEventTemplates.length > 0;
+    }
+
+    get eventTemplateCountLabel() {
+        const count = this.eventTemplates.length;
+        return `${count} template${count === 1 ? '' : 's'} configured globally`;
+    }
+
+    get isTemplateDeleteDisabled() {
+        return this.isSaving || !this.selectedTemplateId;
+    }
+
     openModal() {
         this.isOpen = true;
     }
@@ -484,6 +618,10 @@ export default class CalendarSecurityManager extends LightningElement {
         this.approvedSelectedUsersSearch = event.target.value || '';
     }
 
+    handleTemplateSearchChange(event) {
+        this.templateSearch = event.target.value || '';
+    }
+
     async handleSelectUser(event) {
         const userId = event.currentTarget.dataset.id;
         if (!userId || userId === this.selectedUserId) {
@@ -492,6 +630,23 @@ export default class CalendarSecurityManager extends LightningElement {
 
         this.cacheCurrentLayoutDraft();
         await this.loadUserAccess(userId);
+    }
+
+    handleCreateTemplate() {
+        this.selectedTemplateId = '';
+        this.templateDraft = createDefaultEventTemplateDraft();
+    }
+
+    handleSelectTemplate(event) {
+        const templateId = event.currentTarget.dataset.id;
+        this.selectTemplate(templateId);
+    }
+
+    selectTemplate(templateId) {
+        const selectedTemplate = (this.eventTemplates || []).find((row) => row.id === templateId);
+
+        this.selectedTemplateId = selectedTemplate ? selectedTemplate.id : '';
+        this.templateDraft = normalizeEventTemplateDraft(selectedTemplate || createDefaultEventTemplateDraft());
     }
 
     async loadUserAccess(userId) {
@@ -538,9 +693,13 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     handleRuleToggle(event) {
-        const rowId = event.target.dataset.id;
-        const fieldName = event.target.dataset.field;
-        const checked = event.target.checked === true;
+        const rowId = getEventDatasetValue(event, 'id');
+        const fieldName = getEventDatasetValue(event, 'field');
+        const checked = getEventValue(event) === true;
+
+        if (!rowId || !fieldName) {
+            return;
+        }
 
         this.allAccessRows = this.allAccessRows.map((row) => {
             if (row.id !== rowId) {
@@ -672,15 +831,12 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     handleLayoutFieldChange(event) {
-        const fieldName = event.target.dataset.field;
+        const fieldName = getEventDatasetValue(event, 'field');
         if (!fieldName) {
             return;
         }
 
-        const nextValue =
-            event.target.type === 'checkbox' || event.target.checked !== undefined
-                ? event.target.checked === true
-                : event.target.value ?? '';
+        const nextValue = getEventValue(event);
 
         this.layoutDraft = normalizeLayoutDraft({
             ...this.layoutDraft,
@@ -690,6 +846,117 @@ export default class CalendarSecurityManager extends LightningElement {
         this.enforceAccessibleDefaultCalendar();
         this.enforceAllowedSelectedUsers();
         this.cacheCurrentLayoutDraft();
+    }
+
+    handleTemplateFieldChange(event) {
+        const fieldName = getEventDatasetValue(event, 'field');
+        if (!fieldName) {
+            return;
+        }
+
+        const nextValue = getEventValue(event);
+
+        this.templateDraft = normalizeEventTemplateDraft({
+            ...this.templateDraft,
+            [fieldName]: nextValue
+        });
+    }
+
+    syncTemplateDraftFromForm() {
+        const nextDraft = { ...this.templateDraft };
+        const fieldConfigs = [
+            { fieldName: 'name', selector: 'lightning-input', property: 'value' },
+            { fieldName: 'durationMinutes', selector: 'lightning-input', property: 'value' },
+            { fieldName: 'calendarId', selector: 'lightning-combobox', property: 'value' },
+            { fieldName: 'defaultStatus', selector: 'lightning-combobox', property: 'value' },
+            { fieldName: 'notes', selector: 'lightning-textarea', property: 'value' },
+            { fieldName: 'isActive', selector: 'lightning-input', property: 'checked' }
+        ];
+
+        fieldConfigs.forEach(({ fieldName, selector, property }) => {
+            const control = this.template.querySelector(
+                `.security-template-form__field[data-field="${fieldName}"] ${selector}`
+            );
+
+            if (!control) {
+                return;
+            }
+
+            nextDraft[fieldName] = control[property];
+        });
+
+        this.templateDraft = normalizeEventTemplateDraft(nextDraft);
+        return this.templateDraft;
+    }
+
+    async handleTemplateSave() {
+        this.isSaving = true;
+
+        try {
+            const draftToSave = this.syncTemplateDraftFromForm();
+            const savedTemplate = normalizeEventTemplateRow(
+                await saveEventTemplate({
+                    templateJson: JSON.stringify({
+                        ...draftToSave,
+                        id: this.selectedTemplateId || null,
+                        calendarId: draftToSave.calendarId || null
+                    })
+                })
+            );
+
+            const nextRows = (this.eventTemplates || []).filter((row) => row.id !== savedTemplate.id);
+            nextRows.push(savedTemplate);
+            this.eventTemplates = nextRows.sort((left, right) =>
+                (left.name || '').localeCompare(right.name || '')
+            );
+            this.selectTemplate(savedTemplate.id);
+
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Saved',
+                    message: `${savedTemplate.name} is available in the event template picker.`,
+                    variant: 'success'
+                })
+            );
+        } catch (error) {
+            this.showError('Unable to save event template.', error);
+        } finally {
+            this.isSaving = false;
+        }
+    }
+
+    async handleTemplateDelete() {
+        if (!this.selectedTemplateId) {
+            return;
+        }
+
+        this.isSaving = true;
+
+        try {
+            await deleteEventTemplate({ templateId: this.selectedTemplateId });
+
+            this.eventTemplates = (this.eventTemplates || []).filter(
+                (row) => row.id !== this.selectedTemplateId
+            );
+
+            if (this.eventTemplates.length) {
+                this.selectTemplate(this.eventTemplates[0].id);
+            } else {
+                this.handleCreateTemplate();
+            }
+
+            this.dispatchEvent(
+                new ShowToastEvent({
+                    title: 'Deleted',
+                    message: 'Event template removed.',
+                    variant: 'success'
+                })
+            );
+        } catch (error) {
+            this.showError('Unable to delete event template.', error);
+        } finally {
+            this.isSaving = false;
+        }
     }
 
     handleLayoutPreset(event) {
@@ -839,13 +1106,13 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     handleAllowedSelectedUserToggle(event) {
-        const userId = event.target.dataset.id;
+        const userId = getEventDatasetValue(event, 'id');
         if (!userId) {
             return;
         }
 
         const allowedIds = new Set(this.layoutDraft?.allowedSelectedUserIds || []);
-        if (event.target.checked === true) {
+        if (getEventValue(event) === true) {
             allowedIds.add(userId);
         } else {
             allowedIds.delete(userId);
@@ -886,12 +1153,12 @@ export default class CalendarSecurityManager extends LightningElement {
     }
 
     async handleLayoutFieldAllUsersChange(event) {
-        const fieldName = event.target.dataset.field;
+        const fieldName = getEventDatasetValue(event, 'field');
         if (!fieldName) {
             return;
         }
 
-        const checked = event.target.checked === true;
+        const checked = getEventValue(event) === true;
         this.applyingAllUsersFieldName = fieldName;
 
         try {

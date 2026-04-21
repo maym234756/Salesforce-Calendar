@@ -330,4 +330,5 @@ private class TeamCalendarRecordMutationServiceTest {
         System.assertEquals(eventRow.Id, deletedEventId);
         System.assertEquals(0, [SELECT COUNT() FROM Calendar_Event__c WHERE Id = :eventRow.Id]);
     }
+
 }

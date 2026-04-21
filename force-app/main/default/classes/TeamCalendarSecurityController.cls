@@ -332,4 +332,19 @@ public with sharing class TeamCalendarSecurityController {
     public static TeamCalendarUserPreferenceService.UserPreferenceDTO getCurrentUserLayoutPreference() {
         return TeamCalendarUserPreferenceService.getPreferenceForCurrentUser();
     }
+
+    @AuraEnabled
+    public static TeamCalendarUserPreferenceService.UserPreferenceDTO saveCurrentUserLayoutPreference(
+        String preferenceJson
+    ) {
+        TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
+            String.isBlank(preferenceJson)
+                ? new TeamCalendarUserPreferenceService.UserPreferenceInput()
+                : (TeamCalendarUserPreferenceService.UserPreferenceInput) JSON.deserialize(
+                    preferenceJson,
+                    TeamCalendarUserPreferenceService.UserPreferenceInput.class
+                );
+
+        return TeamCalendarUserPreferenceService.savePreferenceForCurrentUser(inputRow);
+    }
 }

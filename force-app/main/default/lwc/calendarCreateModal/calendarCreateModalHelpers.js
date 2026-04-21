@@ -62,54 +62,87 @@ export function resolveDefaultAssignedUserId(currentUserId, assignableOptions) {
         : null;
 }
 
-export function buildEventTemplateOptions() {
-    return [
-        { label: 'Custom', value: DEFAULT_TEMPLATE_KEY },
-        { label: 'Sales Call', value: 'salesCall' },
-        { label: 'Service Follow-Up', value: 'serviceFollowUp' },
-        { label: 'Internal Review', value: 'internalReview' }
-    ];
+function normalizeTemplateDuration(rawValue) {
+    const parsed = parseInt(rawValue, 10);
+    return Number.isNaN(parsed) || parsed <= 0 ? null : parsed;
 }
 
-export function buildTemplatePreset(templateKey) {
-    switch (templateKey) {
-        case 'salesCall':
-            return {
-                appointmentType: 'Customer',
-                reminderOffset: '30 Minutes',
-                durationMinutes: 60,
-                followUpFrequency: 'none',
-                followUpCount: 0,
-                description: 'Use this for customer outreach and discovery calls.'
-            };
-        case 'serviceFollowUp':
-            return {
-                appointmentType: 'Follow-Up',
-                reminderOffset: '1 Day',
-                durationMinutes: 30,
-                followUpFrequency: 'weekly',
-                followUpCount: 3,
-                description: 'Use this for post-visit check-ins and service callbacks.'
-            };
-        case 'internalReview':
-            return {
-                appointmentType: 'Internal',
-                reminderOffset: '15 Minutes',
-                durationMinutes: 60,
-                followUpFrequency: 'none',
-                followUpCount: 0,
-                description: 'Use this for internal planning, prep, and review sessions.'
-            };
-        default:
-            return {
-                appointmentType: null,
-                reminderOffset: null,
-                durationMinutes: null,
-                followUpFrequency: null,
-                followUpCount: null,
-                description: 'Build your own event without a preset.'
-            };
+export function normalizeEventTemplates(rows) {
+    return Array.isArray(rows)
+        ? rows
+              .filter((row) => row && row.id)
+              .map((row) => ({
+                  id: row.id,
+                  name: row.name || 'Untitled Template',
+                  durationMinutes: normalizeTemplateDuration(row.durationMinutes),
+                  calendarId: row.calendarId || null,
+                  calendarName: row.calendarName || '',
+                  defaultStatus: row.defaultStatus || DEFAULT_EVENT_STATUS,
+                  notes: row.notes || '',
+                  isActive: row.isActive !== false
+              }))
+        : [];
+}
+
+export function buildEventTemplateOptions(rows = []) {
+    const options = [{ label: 'Custom', value: DEFAULT_TEMPLATE_KEY }];
+
+    normalizeEventTemplates(rows)
+        .filter((row) => row.isActive)
+        .forEach((row) => {
+            options.push({
+                label: row.name,
+                value: row.id
+            });
+        });
+
+    return options;
+}
+
+function buildTemplateDescription(templateRow) {
+    const summaryParts = [];
+
+    if (templateRow.durationMinutes) {
+        summaryParts.push(`${templateRow.durationMinutes} minute default`);
     }
+
+    if (templateRow.calendarName) {
+        summaryParts.push(`Calendar: ${templateRow.calendarName}`);
+    }
+
+    if (templateRow.defaultStatus) {
+        summaryParts.push(`Status: ${templateRow.defaultStatus}`);
+    }
+
+    if (templateRow.notes) {
+        summaryParts.push(templateRow.notes);
+    }
+
+    return summaryParts.join(' • ');
+}
+
+export function buildTemplatePreset(templateKey, rows = []) {
+    const templateRow = normalizeEventTemplates(rows).find((row) => row.id === templateKey);
+
+    if (!templateRow) {
+        return {
+            name: '',
+            durationMinutes: null,
+            calendarId: null,
+            defaultStatus: null,
+            notes: '',
+            description: 'Build your own event without a preset.'
+        };
+    }
+
+    return {
+        name: templateRow.name,
+        durationMinutes: templateRow.durationMinutes,
+        calendarId: templateRow.calendarId,
+        defaultStatus: templateRow.defaultStatus,
+        notes: templateRow.notes,
+        description: buildTemplateDescription(templateRow)
+    };
 }
 
 export function buildResolvedCalendarLabel(calendarValue) {

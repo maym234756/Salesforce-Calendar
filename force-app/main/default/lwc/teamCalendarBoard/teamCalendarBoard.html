@@ -7,6 +7,36 @@
 -->
 <template>
     <lightning-card title="Team Calendar Board" icon-name="standard:event">
+        <div
+            aria-live="polite"
+            aria-atomic="true"
+            class="slds-assistive-text"
+        >{_ariaMessage}</div>
+
+        <template if:true={activeMutationNotice}>
+            <section class="mutation-toast" role="status" aria-live="polite">
+                <div class="mutation-toast__body">
+                    <span class="mutation-toast__message">{activeMutationNotice.message}</span>
+                    <div class="mutation-toast__actions">
+                        <button
+                            type="button"
+                            class="slds-button slds-button_neutral mutation-toast__action"
+                            onclick={handleMutationNoticeAction}
+                        >
+                            {activeMutationNotice.actionLabel}
+                        </button>
+                        <button
+                            type="button"
+                            class="slds-button slds-button_base mutation-toast__dismiss"
+                            onclick={dismissMutationNotice}
+                        >
+                            Dismiss
+                        </button>
+                    </div>
+                </div>
+            </section>
+        </template>
+
         <div class="slds-hide" aria-hidden="true">
             <div data-export-form-host lwc:dom="manual"></div>
 
@@ -25,7 +55,7 @@
             </template>
         </div>
 
-        <div class="board-wrap" oncontextmenu={handleBoardContextMenu}>
+        <div class="board-wrap" oncontextmenu={handleBoardContextMenu} ontouchstart={handleTouchStart} ontouchend={handleTouchEnd}>
             <div class="board-toolbar-shell">
                 <c-calendar-toolbar
                     range-label={rangeLabel}
@@ -36,10 +66,10 @@
                     calendar-options={calendarOptions}
                     selected-status={selectedStatus}
                     status-options={statusOptions}
-                    google-import-action-label={googleImportActionLabel}
-                    google-import-action-disabled={googleImportActionDisabled}
-                    google-export-action-label={googleExportActionLabel}
-                    google-export-action-disabled={googleExportActionDisabled}
+                    google-import-action-label={googleSyncViewState.importActionLabel}
+                    google-import-action-disabled={googleSyncViewState.importActionDisabled}
+                    google-export-action-label={googleSyncViewState.exportActionLabel}
+                    google-export-action-disabled={googleSyncViewState.exportActionDisabled}
                     user-options={activeUserOptions}
                     active-user-options={activeUserOptions}
                     selected-user-ids={selectedUserIds}
@@ -61,9 +91,11 @@
                     onviewchange={handleViewChange}
                     oncalendarchange={handleCalendarChange}
                     onstatuschange={handleStatusChange}
+                    onexportcsv={handleExportCsv}
+                    onexportical={handleExportIcal}
                     ongeneratepdf={handleGeneratePdf}
-                    ongoogleimportaction={handleGoogleImportAction}
-                    ongoogleexportaction={handleGoogleExportAction}
+                    ongoogleimportaction={handleGoogleToolbarEvent}
+                    ongoogleexportaction={handleGoogleToolbarEvent}
                     onuserselectionchange={handleUserSelectionChange}
                     onusercalendaropen={handleUserCalendarOpen}
                     onusercalendarselectionchange={handleUserCalendarSelectionChange}
@@ -71,6 +103,7 @@
                     onlayoutchange={handleToolbarLayoutChange}
                     onlayoutchanged={handleUserLayoutPreferenceChanged}
                     onruleschanged={handleSecurityRulesChanged}
+                    onsearchchange={handleToolbarSearchChange}
                 >
                 </c-calendar-toolbar>
             </div>
@@ -80,6 +113,18 @@
                     {monthYearLabel}
                 </div>
 
+                <template if:true={hasLegendItems}>
+                    <div class="board-legend">
+                        <c-calendar-legend
+                            items={legendItems}
+                            editable
+                            oncalendarcolorchange={handleLegendColorChange}
+                            oncalendarcolorreset={handleLegendColorReset}
+                        >
+                        </c-calendar-legend>
+                    </div>
+                </template>
+
                 <template if:true={error}>
                     <div class="slds-box slds-theme_error slds-m-around_small">
                         {error}
@@ -88,7 +133,19 @@
 
                 <template if:true={isLoading}>
                     <div class="board-loading">
-                        <lightning-spinner alternative-text="Loading calendar"></lightning-spinner>
+                        <div class="board-skeleton" aria-hidden="true">
+                            <div class="skel-toolbar"></div>
+                            <div class="skel-grid">
+                                <template for:each={skeletonCells} for:item="cell">
+                                    <div key={cell.key} class="skel-cell">
+                                        <div class="skel-line skel-line--day-num"></div>
+                                        <div class="skel-line skel-line--bar skel-line--lg"></div>
+                                        <div class="skel-line skel-line--bar skel-line--md"></div>
+                                        <div class="skel-line skel-line--bar skel-line--sm"></div>
+                                    </div>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </template>
 
@@ -103,6 +160,8 @@
                                 wrap-event-titles={wrapEventTitles}
                                 compact-event-density={compactEventDensity}
                                 ondayselect={handleDaySelect}
+                                onquickcreate={handleGridQuickCreate}
+                                onmoreevents={handleMoreEvents}
                                 oneventdrop={handleEventDrop}
                                 oneventopen={handleEventOpen}
                                 oneventhover={handleEventHover}
@@ -277,212 +336,29 @@
             </div>
         </div>
 
-        <template if:true={showGoogleConnectModal}>
-            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-connect-heading" class="slds-modal slds-fade-in-open google-connect-modal">
-                <div class="slds-modal__container">
-                    <header class="slds-modal__header">
-                        <h2 id="google-connect-heading" class="slds-text-heading_medium">Connect Google Calendar</h2>
-                    </header>
-
-                    <div class="slds-modal__content slds-p-around_medium">
-                        <div class="google-connect-modal__copy">
-                            Start the Google OAuth flow in a new browser tab, complete sign-in, then come back here and confirm the connection.
-                        </div>
-
-                        <div class="google-connect-modal__status">{googleImportStatusMessage}</div>
-                    </div>
-
-                    <footer class="slds-modal__footer google-connect-modal__footer">
-                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleConnectModalClose}>
-                            Cancel
-                        </button>
-                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleConnectModalLaunch}>
-                            Open Google Sign-In
-                        </button>
-                        <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleConnectModalRefresh}>
-                            I Finished Connecting
-                        </button>
-                    </footer>
-                </div>
-            </section>
-            <div class="slds-backdrop slds-backdrop_open"></div>
-        </template>
-
-        <template if:true={showGoogleImportModal}>
-            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-import-heading" class="slds-modal slds-fade-in-open google-connect-modal">
-                <div class="slds-modal__container">
-                    <header class="slds-modal__header">
-                        <h2 id="google-import-heading" class="slds-text-heading_medium">{googleImportModalTitle}</h2>
-                    </header>
-
-                    <div class="slds-modal__content slds-p-around_medium">
-                        <div class="slds-form-element google-sync-modal__field">
-                            <label class="slds-form-element__label" for="google-import-calendar-select">Salesforce Calendar</label>
-                            <div class="slds-form-element__control">
-                                <select
-                                    id="google-import-calendar-select"
-                                    class="slds-select google-sync-modal__listbox"
-                                    size="10"
-                                    onchange={handleGoogleImportModalCalendarChange}
-                                >
-                                    <template for:each={googleImportModalSelectOptions} for:item="option">
-                                        <option key={option.value} value={option.value} selected={option.selected}>{option.label}</option>
-                                    </template>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="google-connect-modal__status">{googleImportModalCalendarHelpText}</div>
-
-                        <template if:true={isGoogleImportModalConfigured}>
-                            <template if:false={isGoogleImportModalConnected}>
-                            <div class="google-connect-modal__copy">
-                                Start the Google OAuth flow in a new browser tab. After Google trusts the connection, return here and confirm the connection to load your Google calendars.
-                            </div>
-
-                            <div class="google-connect-modal__status">{googleImportStatusMessage}</div>
-                            </template>
-
-                            <template if:true={isGoogleImportModalConnected}>
-                                <lightning-checkbox-group
-                                    class="google-sync-modal__field"
-                                    label="Google Calendars"
-                                    options={googleImportCalendarOptions}
-                                    value={selectedGoogleImportCalendarIds}
-                                    disabled={googleImportCalendarsDisabled}
-                                    onchange={handleGoogleImportCalendarSelectionChange}
-                                >
-                                </lightning-checkbox-group>
-
-                                <div class="google-connect-modal__status">{googleImportHelpText}</div>
-                            </template>
-                        </template>
-                    </div>
-
-                    <footer class="slds-modal__footer google-connect-modal__footer">
-                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleImportModalClose}>
-                            Cancel
-                        </button>
-
-                        <template if:false={isGoogleImportModalUsingCurrentCalendar}>
-                            <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleImportModalContinue}>
-                                Continue
-                            </button>
-                        </template>
-
-                        <template if:true={isGoogleImportModalUsingCurrentCalendar}>
-                            <template if:true={isGoogleImportModalConfigured}>
-                                <template if:false={isGoogleImportModalConnected}>
-                                    <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleImportModalLaunch}>
-                                        Open Google Sign-In
-                                    </button>
-                                    <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleImportModalRefresh}>
-                                        I Finished Connecting
-                                    </button>
-                                </template>
-
-                                <template if:true={isGoogleImportModalConnected}>
-                                    <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleImportModalContinue}>
-                                        Continue
-                                    </button>
-                                </template>
-                            </template>
-                        </template>
-                    </footer>
-                </div>
-            </section>
-            <div class="slds-backdrop slds-backdrop_open"></div>
-        </template>
-
-        <template if:true={showGoogleExportModal}>
-            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-export-heading" class="slds-modal slds-fade-in-open google-connect-modal">
-                <div class="slds-modal__container">
-                    <header class="slds-modal__header">
-                        <h2 id="google-export-heading" class="slds-text-heading_medium">{googleExportModalTitle}</h2>
-                    </header>
-
-                    <div class="slds-modal__content slds-p-around_medium">
-                        <div class="slds-form-element google-sync-modal__field">
-                            <label class="slds-form-element__label" for="google-export-team-calendar-select">Salesforce Calendar</label>
-                            <div class="slds-form-element__control">
-                                <select
-                                    id="google-export-team-calendar-select"
-                                    class="slds-select google-sync-modal__listbox"
-                                    size="10"
-                                    onchange={handleGoogleExportModalCalendarChange}
-                                >
-                                    <template for:each={googleExportModalSelectOptions} for:item="option">
-                                        <option key={option.value} value={option.value} selected={option.selected}>{option.label}</option>
-                                    </template>
-                                </select>
-                            </div>
-                        </div>
-
-                        <div class="google-connect-modal__status">{googleExportHelpText}</div>
-
-                        <template if:true={isGoogleExportModalUsingCurrentCalendar}>
-                            <template if:false={isGoogleExportModalConnected}>
-                                <div class="google-connect-modal__copy">
-                                    Start the Google OAuth flow in a new browser tab. After Google trusts the connection, return here and confirm the connection to load your writable Google calendars.
-                                </div>
-
-                                <div class="google-connect-modal__status">{syncMessage}</div>
-                            </template>
-
-                            <template if:true={isGoogleExportModalConnected}>
-                                <div class="slds-form-element google-sync-modal__field">
-                                    <label class="slds-form-element__label" for="google-export-calendar-select">Google Calendar Destination</label>
-                                    <div class="slds-form-element__control">
-                                        <div class="slds-select_container">
-                                            <select
-                                                id="google-export-calendar-select"
-                                                class="slds-select"
-                                                disabled={googleCalendarSelectionDisabled}
-                                                onchange={handleGoogleExportCalendarSelectionChange}
-                                            >
-                                                <template for:each={googleExportSelectOptions} for:item="option">
-                                                    <option key={option.value} value={option.value} selected={option.selected}>{option.label}</option>
-                                                </template>
-                                            </select>
-                                        </div>
-                                    </div>
-                                </div>
-                            </template>
-                        </template>
-                    </div>
-
-                    <footer class="slds-modal__footer google-connect-modal__footer">
-                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleExportModalClose}>
-                            Cancel
-                        </button>
-
-                        <template if:false={isGoogleExportModalUsingCurrentCalendar}>
-                            <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleExportModalContinue}>
-                                Continue
-                            </button>
-                        </template>
-
-                        <template if:true={isGoogleExportModalUsingCurrentCalendar}>
-                            <template if:false={isGoogleExportModalConnected}>
-                                <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleExportModalLaunch}>
-                                    Open Google Sign-In
-                                </button>
-                                <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleExportModalRefresh}>
-                                    I Finished Connecting
-                                </button>
-                            </template>
-
-                            <template if:true={isGoogleExportModalConnected}>
-                                <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleExportModalContinue}>
-                                    Continue
-                                </button>
-                            </template>
-                        </template>
-                    </footer>
-                </div>
-            </section>
-            <div class="slds-backdrop slds-backdrop_open"></div>
-        </template>
+        <c-calendar-google-sync-modals
+            show-connect-modal={showGoogleConnectModal}
+            show-import-modal={showGoogleImportModal}
+            show-export-modal={showGoogleExportModal}
+            google-sync-view-state={googleSyncViewState}
+            sync-message={syncMessage}
+            ongoogleconnectmodalclose={handleGoogleModalEvent}
+            ongoogleconnectmodallaunch={handleGoogleModalEvent}
+            ongoogleconnectmodalrefresh={handleGoogleModalEvent}
+            ongoogleimportmodalclose={handleGoogleModalEvent}
+            ongoogleimportmodalcalendarchange={handleGoogleModalEvent}
+            ongoogleimportmodallaunch={handleGoogleModalEvent}
+            ongoogleimportmodalrefresh={handleGoogleModalEvent}
+            ongoogleimportmodalcontinue={handleGoogleModalEvent}
+            ongoogleimportcalendarselectionchange={handleGoogleModalEvent}
+            ongoogleexportmodalclose={handleGoogleModalEvent}
+            ongoogleexportmodalcalendarchange={handleGoogleModalEvent}
+            ongoogleexportmodallaunch={handleGoogleModalEvent}
+            ongoogleexportmodalrefresh={handleGoogleModalEvent}
+            ongoogleexportmodalcontinue={handleGoogleModalEvent}
+            ongoogleexportcalendarselectionchange={handleGoogleModalEvent}
+        >
+        </c-calendar-google-sync-modals>
 
         <template if:true={pendingDeleteConfirm}>
             <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="delete-confirm-heading" class="slds-modal slds-fade-in-open">
@@ -525,9 +401,106 @@
                 can-delete={selectedRecordCanDelete}
                 occurrence-date={selectedRecordOccurrenceDate}
                 is-recurring={selectedRecordIsRecurring}
+                onmutation={handleDrawerMutation}
                 onclose={handleCloseDrawer}
             >
             </c-calendar-event-drawer>
         </template>
+
+        <!-- Quick-Create Popover -->
+        <template if:true={hasQuickCreate}>
+            <div class="qc-backdrop" onclick={handleQuickCreateClose}></div>
+            <div class="qc-popover" style={quickCreateStyle} role="dialog" aria-modal="true" aria-labelledby="qc-heading">
+                <div class="qc-header">
+                    <span id="qc-heading" class="qc-heading">New Event</span>
+                    <button class="qc-close-btn" onclick={handleQuickCreateClose} title="Close" aria-label="Close quick-create">✕</button>
+                </div>
+                <div class="qc-body">
+                    <div class="qc-field">
+                        <label class="qc-label" for="qc-title">Title <abbr title="required">*</abbr></label>
+                        <input
+                            id="qc-title"
+                            type="text"
+                            class="qc-input"
+                            value={quickCreateTitle}
+                            onchange={handleQuickCreateTitleChange}
+                            placeholder="Event title"
+                            maxlength="255"
+                        />
+                    </div>
+                    <div class="qc-field">
+                        <label class="qc-label" for="qc-calendar">Calendar</label>
+                        <lightning-combobox
+                            id="qc-calendar"
+                            name="quickCreateCalendar"
+                            value={quickCreateCalendarId}
+                            options={quickCreateCalendarOptions}
+                            onchange={handleQuickCreateCalendarChange}
+                            variant="label-hidden"
+                        ></lightning-combobox>
+                    </div>
+                </div>
+                <div class="qc-footer">
+                    <lightning-button
+                        label="More Details"
+                        variant="base"
+                        onclick={handleQuickCreateMoreDetails}
+                        disabled={quickCreateIsSaving}
+                    ></lightning-button>
+                    <lightning-button
+                        label="Save"
+                        variant="brand"
+                        onclick={handleQuickCreateSave}
+                        disabled={quickCreateIsSaving}
+                    ></lightning-button>
+                </div>
+            </div>
+        </template>
+
+        <template if:true={showKeyboardShortcutOverlay}>
+            <section
+                role="dialog"
+                tabindex="-1"
+                aria-modal="true"
+                aria-labelledby="kb-shortcut-heading"
+                class="slds-modal slds-fade-in-open"
+            >
+                <div class="slds-modal__container" style="max-width:32rem;">
+                    <header class="slds-modal__header">
+                        <button
+                            class="slds-button slds-button_icon slds-button_icon-inverse slds-modal__close"
+                            title="Close"
+                            onclick={handleKeyboardShortcutOverlayClose}
+                        >
+                            <lightning-icon icon-name="utility:close" size="small" alternative-text="Close"></lightning-icon>
+                        </button>
+                        <h2 id="kb-shortcut-heading" class="slds-text-heading_medium">Keyboard Shortcuts</h2>
+                    </header>
+                    <div class="slds-modal__content slds-p-around_medium kb-shortcut-grid">
+                        <div class="kb-section-label">Navigation</div>
+                        <div class="kb-row"><kbd>T</kbd><span>Go to Today</span></div>
+                        <div class="kb-row"><kbd>←</kbd><span>Previous period</span></div>
+                        <div class="kb-row"><kbd>→</kbd><span>Next period</span></div>
+                        <div class="kb-section-label">Views</div>
+                        <div class="kb-row"><kbd>M</kbd><span>Month view</span></div>
+                        <div class="kb-row"><kbd>W</kbd><span>Week view</span></div>
+                        <div class="kb-row"><kbd>D</kbd><span>Day view</span></div>
+                        <div class="kb-row"><kbd>A</kbd><span>Agenda view</span></div>
+                        <div class="kb-section-label">Actions</div>
+                        <div class="kb-row"><kbd>N</kbd><span>New Event</span></div>
+                        <div class="kb-row"><kbd>R</kbd><span>Refresh</span></div>
+                        <div class="kb-row"><kbd>Esc</kbd><span>Close modal / drawer</span></div>
+                        <div class="kb-row"><kbd>?</kbd><span>Show this help</span></div>
+                    </div>
+                    <footer class="slds-modal__footer">
+                        <button type="button" class="slds-button slds-button_brand" onclick={handleKeyboardShortcutOverlayClose}>
+                            Close
+                        </button>
+                    </footer>
+                </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+        </template>
+
     </lightning-card>
 </template>

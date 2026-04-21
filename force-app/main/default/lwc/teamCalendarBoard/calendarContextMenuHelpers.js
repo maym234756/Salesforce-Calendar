@@ -178,6 +178,30 @@ export function buildEventContextMenuItems(source, eventRecord) {
         });
     });
 
+    if (eventRecord) {
+        items.push({
+            key: 'export-record-csv',
+            actionType: 'export-csv',
+            label: 'Export CSV',
+            description: 'Download this record as CSV',
+            recordId: source.recordId,
+            objectApiName: source.recordObjectApiName,
+            className: 'event-context-menu__item'
+        });
+
+        if (eventRecord.start) {
+            items.push({
+                key: 'export-record-ical',
+                actionType: 'export-ical',
+                label: 'Export iCal',
+                description: 'Download this record as iCal',
+                recordId: source.recordId,
+                objectApiName: source.recordObjectApiName,
+                className: 'event-context-menu__item'
+            });
+        }
+    }
+
     if (
         source.canDelete === true &&
         (source.recordObjectApiName === 'Task' || source.recordObjectApiName === 'Calendar_Event__c')

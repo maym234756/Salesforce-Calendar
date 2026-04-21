@@ -366,6 +366,172 @@
                                     </div>
 
                                     <div class="security-layout-tab">
+                                        <div class="security-layout-summary security-layout-summary--spaced">
+                                            <div class="security-layout-section-header">
+                                                <div>
+                                                    <div class="security-layout-summary__title">Global Event Templates</div>
+                                                    <div class="security-layout-summary__line">
+                                                        Manage reusable event defaults once, then let every scheduler start from the same template picker.
+                                                    </div>
+                                                </div>
+
+                                                <div class="security-layout-section-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="security-layout-section-button"
+                                                        onclick={handleCreateTemplate}
+                                                    >
+                                                        New Template
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-layout-summary__line">
+                                                {eventTemplateCountLabel}
+                                            </div>
+                                        </div>
+
+                                        <div class="security-template-grid">
+                                            <div class="security-template-list">
+                                                <div class="security-pane__search security-pane__search--compact">
+                                                    <lightning-input
+                                                        type="search"
+                                                        label="Search Event Templates"
+                                                        value={templateSearch}
+                                                        onchange={handleTemplateSearchChange}
+                                                    >
+                                                    </lightning-input>
+                                                </div>
+
+                                                <div class="security-template-list__rows">
+                                                    <template if:true={hasFilteredEventTemplates}>
+                                                        <template for:each={filteredEventTemplates} for:item="row">
+                                                            <button
+                                                                key={row.id}
+                                                                type="button"
+                                                                class={row.rowClass}
+                                                                data-id={row.id}
+                                                                onclick={handleSelectTemplate}
+                                                            >
+                                                                <span class="security-template-list__name">{row.name}</span>
+                                                                <span class="security-template-list__summary">{row.summary}</span>
+                                                            </button>
+                                                        </template>
+                                                    </template>
+
+                                                    <template if:false={hasFilteredEventTemplates}>
+                                                        <div class="security-empty">
+                                                            No event templates match the current search.
+                                                        </div>
+                                                    </template>
+                                                </div>
+                                            </div>
+
+                                            <div class="security-template-editor">
+                                                <div class="security-layout-summary__title">Template Details</div>
+                                                <div class="security-layout-summary__line">
+                                                    These defaults apply when users choose the template in the New Calendar Event modal.
+                                                </div>
+
+                                                <div class="security-template-form">
+                                                    <div
+                                                        class="security-template-form__field"
+                                                        data-field="name"
+                                                    >
+                                                        <lightning-input
+                                                            type="text"
+                                                            label="Template Title"
+                                                            value={templateDraft.name}
+                                                            required
+                                                        >
+                                                        </lightning-input>
+                                                    </div>
+
+                                                    <div
+                                                        class="security-template-form__field"
+                                                        data-field="durationMinutes"
+                                                    >
+                                                        <lightning-input
+                                                            type="number"
+                                                            label="Duration Minutes"
+                                                            value={templateDraft.durationMinutes}
+                                                            min="1"
+                                                            required
+                                                        >
+                                                        </lightning-input>
+                                                    </div>
+
+                                                    <div
+                                                        class="security-template-form__field"
+                                                        data-field="calendarId"
+                                                    >
+                                                        <lightning-combobox
+                                                            label="Team Calendar"
+                                                            value={templateDraft.calendarId}
+                                                            options={templateCalendarOptions}
+                                                            required
+                                                        >
+                                                        </lightning-combobox>
+                                                    </div>
+
+                                                    <div
+                                                        class="security-template-form__field"
+                                                        data-field="defaultStatus"
+                                                    >
+                                                        <lightning-combobox
+                                                            label="Default Status"
+                                                            value={templateDraft.defaultStatus}
+                                                            options={layoutStatusOptions}
+                                                        >
+                                                        </lightning-combobox>
+                                                    </div>
+
+                                                    <div
+                                                        class="security-template-form__field security-template-form__field--wide"
+                                                        data-field="notes"
+                                                    >
+                                                        <lightning-textarea
+                                                            label="Default Notes"
+                                                            value={templateDraft.notes}
+                                                        >
+                                                        </lightning-textarea>
+                                                    </div>
+
+                                                    <div
+                                                        class="security-template-form__field security-template-form__field--wide"
+                                                        data-field="isActive"
+                                                    >
+                                                        <lightning-input
+                                                            type="checkbox"
+                                                            label="Template is active in the create modal"
+                                                            checked={templateDraft.isActive}
+                                                        >
+                                                        </lightning-input>
+                                                    </div>
+                                                </div>
+
+                                                <div class="security-template-actions">
+                                                    <button
+                                                        type="button"
+                                                        class="slds-button slds-button_brand"
+                                                        onclick={handleTemplateSave}
+                                                        disabled={isSaving}
+                                                    >
+                                                        Save Template
+                                                    </button>
+
+                                                    <button
+                                                        type="button"
+                                                        class="slds-button slds-button_destructive-text"
+                                                        onclick={handleTemplateDelete}
+                                                        disabled={isTemplateDeleteDisabled}
+                                                    >
+                                                        Delete Template
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         <div class="security-layout-presets">
                                             <div class="security-layout-presets__header">
                                                 <div>

@@ -12,7 +12,7 @@ CURRENT STATE SUMMARY
                Private events, Multi-calendar support, Polling auto-refresh,
                Event Planner modal, Hover cards, Platform events for sync
   Components:  10 LWC + 8 Apex controllers/services + 1 trigger
-  Tests:       191 Apex org tests, 31 Jest tests — all passing
+  Tests:       191 Apex org tests, 262 Jest tests — all passing locally
   Deployed:    calendarDev org (2026-04-18)
 
 COMPONENT LINE COUNTS vs BUDGETS
@@ -61,6 +61,15 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Goal: teamCalendarBoard.js ≤ 500 lines (state + delegation only)
 
   Status: [ ]
+  Progress: Google sync view state extracted to helper module and modal UI extracted to calendarGoogleSyncModals child LWC
+  Deployed: [ Success ] 0AfVo0000010skbKAA
+  Verified: live Google import/export modal smoke test passed in calendarDev
+  Progress: Google sync controller extracted from teamCalendarBoard.js to calendarGoogleSyncController.js
+  Deployed: [ Success ] 0AfVo0000010smDKAQ
+  Verified: live Google import/export modal smoke test passed in calendarDev after controller extraction
+  Progress: Remaining Google wrapper methods collapsed into routed toolbar/modal event bridges
+  Deployed: [ Success ] 0AfVo0000010snpKAA
+  Verified: live Google import/export modal smoke test passed in calendarDev after routed event bridge deploy
 
 ──────────────────────────────────────────────────────────────────────────────
   #2  REFACTOR: Break up calendarCreateModal.js (1,118 lines)
@@ -137,7 +146,7 @@ COMPONENT LINE COUNTS vs BUDGETS
   Status: [ ]
 
 ──────────────────────────────────────────────────────────────────────────────
-  #6  FEATURE: Inline Event Quick-Create
+  #6  FEATURE: Inline Event Quick-Create [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: LOW
   Category: Feature / UX
@@ -150,10 +159,12 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Saves with one click for quick scheduling
   - Works in month grid and week grid views
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
-  #7  UX: Keyboard Navigation & Shortcuts
+  #7  UX: Keyboard Navigation & Shortcuts [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: Accessibility / UX
@@ -170,10 +181,12 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Trap focus inside modals (already partially done)
   - Skip-to-content link for screen readers
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
-  #8  UX: Mobile / Responsive Layout
+  #8  UX: Mobile / Responsive Layout [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: UI / UX
@@ -189,10 +202,12 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Swipe left/right for prev/next navigation
   - Test in Salesforce Mobile app container
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
-  #9  PERFORMANCE: Virtualized Event Rendering
+  #9  PERFORMANCE: Virtualized Event Rendering [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: Performance
@@ -207,10 +222,12 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Cache event data per date range to avoid re-fetching on prev/next toggle
   - Add loading skeletons during data fetch instead of spinner overlay
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
-  #10  PERFORMANCE: Client-Side Event Caching
+  #10  PERFORMANCE: Client-Side Event Caching [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: LOW
   Category: Performance
@@ -225,7 +242,9 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Show cached data immediately, then background-refresh
   - Reduces Apex calls by ~60% during typical browsing
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
   #11  FEATURE: Event Color Customization Per-User
@@ -242,7 +261,14 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Client-side override applied at render time (no backend change to events)
   - Reset to default option
 
-  Status: [ ]
+    Status: [ Completed ]
+    Validated: [ Success ] 0AfVo0000010tbpKAA
+    Deployed: [ Success ] 0AfVo0000010tdRKAQ
+    Note: Completed 2026-04-19 with Calendar_User_Preference__c.Color_Overrides__c,
+      a restored legend color picker/reset UI, and client-side render overrides.
+      Follow-up 2026-04-19 scoped the legend to the selected Calendar dropdown item
+      to avoid front-page clutter; validated as 0AfVo0000010tiHKAQ and deployed as
+      0AfVo0000010tjtKAA.
 
 ──────────────────────────────────────────────────────────────────────────────
   #12  BACKEND: Batch Google Sync Scheduling
@@ -259,10 +285,20 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Error notification: email or in-app notification on sync failure
   - Sync history log object for audit trail
 
-  Status: [ ]
+    Status: [ Completed ]
+    Validated: [ Success ] 0AfVo0000010ttZKAQ
+    Deployed: [ Success ] 0AfVo0000010tvBKAQ
+    Note: Prior completed marker cleared on 2026-04-19 after workspace scan found no
+      GoogleCalendarSyncSchedulable class or sync-history scheduling artifacts.
+    Note: Completed 2026-04-19 with GoogleCalendarSyncScheduler, a deployable
+      Google_Sync_Schedule__mdt config/default record, failure-email reporting,
+      and scheduled changed-only Salesforce -> Google export filtering. The
+      deployed slice uses existing Calendar_Event__c sync fields as the audit
+      surface instead of adding a separate history object, and the scheduler job
+      was not auto-activated in calendarDev.
 
 ──────────────────────────────────────────────────────────────────────────────
-  #13  FEATURE: Event Search / Filter Bar
+  #13  FEATURE: Event Search / Filter Bar [Completed]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: Feature / UX
@@ -277,10 +313,12 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Clear search restores full view
   - Optional: SOSL-backed search for events outside current date range
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
-  #14  FEATURE: Multi-Day Event Spanning
+  #14  FEATURE: Multi-Day Event Spanning [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: Feature / UI
@@ -295,15 +333,20 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Dedicated "all-day" row at top of each week row
   - Proper z-index stacking for overlapping multi-day bars
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
   #15  TESTING: Increase Jest Coverage
+
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: Testing
 
-  31 Jest tests exist for teamCalendarBoard only. No other LWC has tests.
+  Broad LWC Jest coverage now exists across the calendar bundle, but repo-wide
+  line coverage is still below target and several large modules remain
+  undercovered.
 
   Plan:
   - calendarGrid: drag-and-drop, keyboard nav, day click, "+N more"
@@ -315,7 +358,25 @@ COMPONENT LINE COUNTS vs BUDGETS
   - calendarUtils: pure function unit tests (date math, color sanitize)
   - Target: 80%+ line coverage across all LWC components
 
-  Status: [ ]
+  Status: [ Completed ]
+            Progress: Local direct Jest coverage now measures 80.87% lines (3531/4366),
+              80.65% statements, 84.15% functions, and 62.74% branches across
+      force-app/main/default/lwc/**/*.js.
+    Progress: Coverage was extended with focused suites for calendarUtils/poller,
+      calendarViewLoader, calendarRecurrenceEditor, calendarDayView,
+        calendarCreateModalHelpers, calendarViewMapper, calendarCreateModal
+          component flows, calendarAgenda interaction/delegation paths,
+            calendarGoogleSyncController, calendarToolbar, calendarEventDrawer,
+              calendarGoogleSyncModals, calendarGrid, two focused passes over
+              teamCalendarBoard, a second calendarEventDrawer branch/helpers slice,
+              and a final coverage pass over calendarUtils plus calendarCreateModal.
+            Validated: Local direct Jest run passed 25/25 suites and 262/262 tests using
+       jest.config.js with explicit collectCoverageFrom globs.
+            Verified: The repo-wide 80%+ LWC line-coverage target is now met.
+            Note: Residual undercovered files still include teamCalendarBoard.js,
+              calendarSecurityManager.js, calendarGrid.js, calendarAgenda.js,
+              and calendarDayView.js, but #15's repo-wide coverage target is complete.
+  Note: No standalone calendarDev deploy is recorded for this testing slice yet.
 
 ──────────────────────────────────────────────────────────────────────────────
   #16  UX: Undo/Redo for Event Mutations
@@ -333,7 +394,9 @@ COMPONENT LINE COUNTS vs BUDGETS
   - 10-second undo window before toast auto-dismisses
   - Works for drag-drop, inline edit, and delete operations
 
-  Status: [ ]
+  Status: [ Completed ]
+  Deployed: [ Success ] 0AfVo0000010sPdKAI
+  Verified: calendarDev deploy passed 8/8 targeted tests for TeamCalendarUndoService and board/drawer undo flows
 
 ──────────────────────────────────────────────────────────────────────────────
   #17  FEATURE: Event Templates
@@ -351,10 +414,18 @@ COMPONENT LINE COUNTS vs BUDGETS
   - User can customize before saving
   - Template management UI in security manager admin panel
 
-  Status: [ ]
+  Status: [ Completed ]
+  Deployed: [ Success ] 0AfVo0000010sW5KAI
+  Follow-up: [ Success ] 0AfVo0000010se9KAA
+  Verified: live admin create/edit/delete re-tested successfully in calendarDev
+  Validated: [ Success ] 0AfVo0000010tWzKAI via #23 follow-up
+  Follow-up 2: [ Success ] 0AfVo0000010tYbKAI via #23 follow-up
+  Re-verified: targeted calendarDev deploy passed 9/9 tests for
+               TeamCalendarEventTemplateService and
+               TeamCalendarEventPlannerController on the template UI/admin follow-up
 
 ──────────────────────────────────────────────────────────────────────────────
-  #18  A11Y: ARIA Live Regions & Screen Reader Announcements
+  #18  A11Y: ARIA Live Regions & Screen Reader Announcements [ Completed ]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: MEDIUM
   Category: Accessibility
@@ -370,10 +441,12 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Announce view changes: "Now showing Week view"
   - Ensure all interactive elements have accessible names
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY via #22 bundle
+  Deployed: [ Success ] 0AfVo0000010tOvKAI via #22 bundle
 
 ──────────────────────────────────────────────────────────────────────────────
-  #19  FEATURE: Export to CSV / iCal
+    #19  FEATURE: Export to CSV / iCal [Completed]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: LOW
   Category: Feature
@@ -385,12 +458,17 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Export to iCal (.ics) format for import into Outlook/Apple Calendar
   - Bulk export or single-event export
   - Download triggered from toolbar or context menu
-  - Apex endpoint generates file, LWC triggers download
+  - Client-side export helper generates files from normalized visible event data
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010u1dKAA
+  Deployed: [ Success ] 0AfVo0000010u3FKAQ
+  Verified: targeted LWC Jest passed 34/34; toolbar exports visible events and
+            context-menu exports single records in CSV/iCal without a new Apex
+            endpoint
 
 ──────────────────────────────────────────────────────────────────────────────
-  #20  BACKEND: Event Change Notifications (Platform Events)
+  #20  BACKEND: Event Change Notifications (Platform Events) [Completed]
 ──────────────────────────────────────────────────────────────────────────────
   Severity: LOW
   Category: Backend / Real-time
@@ -405,7 +483,78 @@ COMPONENT LINE COUNTS vs BUDGETS
   - Replace or supplement existing 30-second polling interval
   - Reduces server load and provides instant updates across users
 
-  Status: [ ]
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010u1dKAA
+  Deployed: [ Success ] 0AfVo0000010u3FKAQ
+  Verified: dry-run/live deploy passed 14/14 components and 6/6 Apex tests;
+            Calendar_Event_Change__e now publishes create/update/delete/restore
+            notifications and teamCalendarBoard subscribes with debounced
+            empApi refreshes that ignore sync-only field noise
+
+──────────────────────────────────────────────────────────────────────────────
+  #21  HOTFIX: Deployment-Safe Admin Permission Tests [Completed]
+──────────────────────────────────────────────────────────────────────────────
+  Severity: HIGH
+  Category: Maintenance / Deployment
+
+  Admin-gated Apex tests for Google connection and calendar security were
+  depending on the deploying user already holding TeamCalendarRuntimeAccess,
+  which blocked unrelated sandbox deploys by other System Administrators.
+
+  Plan:
+  - Add shared Apex test helper to self-grant TeamCalendarRuntimeAccess
+  - Run admin-guarded service/controller calls inside refreshed System.runAs
+  - Patch Google connection, user preference, event template, and security tests
+  - Validate with targeted check-only deploy before landing in calendarDev
+
+  Status: [ Completed ]
+  Deployed: [ Success ] 0AfVo0000010tLhKAI
+  Verified: targeted calendarDev deploy passed 31/31 tests with deployer-permission dependency removed
+
+──────────────────────────────────────────────────────────────────────────────
+  #22  DEPLOY: Board UX / Accessibility / Performance Bundle [Completed]
+──────────────────────────────────────────────────────────────────────────────
+  Severity: MEDIUM
+  Category: Deployment / Bundle
+
+  Bundled calendar board improvements that span multiple previously completed
+  enhancements, including quick-create, keyboard shortcuts, responsive layout,
+  event overflow handling, client-side filtering, multi-day spanning, caching,
+  and aria-live announcements.
+
+  Included Enhancements:
+  - #6 Inline Event Quick-Create
+  - #7 Keyboard Navigation & Shortcuts
+  - #8 Mobile / Responsive Layout
+  - #9 Virtualized Event Rendering
+  - #10 Client-Side Event Caching
+  - #13 Event Search / Filter Bar
+  - #14 Multi-Day Event Spanning
+  - #18 ARIA Live Regions & Screen Reader Announcements
+
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tNJKAY
+  Deployed: [ Success ] 0AfVo0000010tOvKAI
+  Verified: targeted LWC Jest passed 128/128 before deploy and calendarDev accepted all 7 board/UI bundles with 0 component errors
+
+──────────────────────────────────────────────────────────────────────────────
+  #23  DEPLOY: Event Template UI / Admin Follow-Up [Completed]
+──────────────────────────────────────────────────────────────────────────────
+  Severity: LOW
+  Category: Deployment / Follow-up
+
+  Follow-up deploy for the Event Templates feature so the create modal reads
+  live admin-managed templates and the security manager maintains the global
+  template catalog inline.
+
+  Included Enhancements:
+  - #17 Event Templates
+
+  Status: [ Completed ]
+  Validated: [ Success ] 0AfVo0000010tWzKAI
+  Deployed: [ Success ] 0AfVo0000010tYbKAI
+  Verified: targeted calendarDev deploy passed 9/9 tests and accepted the
+            calendarCreateModal/calendarSecurityManager follow-up with 0 component errors
 
 
 ================================================================================
@@ -417,7 +566,7 @@ COMPONENT LINE COUNTS vs BUDGETS
     #2  Refactor calendarCreateModal.js
     #3  Refactor calendarSecurityManager
 
-  Phase 2 — Core Features: [Completed]
+  Phase 2 — Core Features: [In Progress]
     #4  Day View
     #14 Multi-Day Event Spanning
     #5  Recurring Events
@@ -434,13 +583,13 @@ COMPONENT LINE COUNTS vs BUDGETS
     #10 Client-Side Caching
 
   Phase 5 — Nice-to-Have:
-    #15 Jest Coverage
+    #15 Jest Coverage [ Completed ]
     #16 Undo/Redo
-    #20 Real-time Platform Events
+    #20 Real-time Platform Events [ Completed ]
     #12 Batch Google Sync
     #11 Per-User Color Overrides
     #17 Event Templates
-    #19 CSV / iCal Export
+    #19 CSV / iCal Export [ Completed ]
 
 
 ================================================================================

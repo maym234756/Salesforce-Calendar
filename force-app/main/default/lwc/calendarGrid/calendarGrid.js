@@ -1,4 +1,20 @@
 import { LightningElement, api } from 'lwc';
+import { dateKey, sanitizeColor, readableTextColor } from 'c/calendarUtils';
+
+const DAY_LABEL_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric'
+});
+
+const MONTH_SHORT_FORMATTER = new Intl.DateTimeFormat('en-US', {
+    month: 'short'
+});
+
+function isSpanningEvent(eventRecord) {
+    return eventRecord?.isContinuation === true || eventRecord?.continuesAfter === true;
+}
 
 export default class CalendarGrid extends LightningElement {
     @api weeks = [];
@@ -61,13 +77,67 @@ export default class CalendarGrid extends LightningElement {
         return this.showWeekends ? all : all.filter(d => !d.isWeekend);
     }
 
+    get weekDaysClass() {
+        return this.shouldAutoExpandRows ? 'week-days week-days--auto-expand' : 'week-days';
+    }
+
+    get shouldAutoExpandRows() {
+        return this.autoExpandDayHeight && this.singleRow;
+    }
+
     get filteredWeeks() {
         if (!this.hasWeeks) return [];
-        if (this.showWeekends) return this.weeks;
-        return this.weeks.map(week => ({
-            ...week,
-            days: week.days.filter(day => !day.isWeekend)
-        }));
+        const todayKey = dateKey(new Date());
+
+        return this.weeks.map((week) => {
+            const visibleDays = this.showWeekends
+                ? week.days
+                : week.days.filter((d) => !d.isWeekend);
+            const spanningBarRows = this._buildSpanningBars(visibleDays);
+            const maxVisible = Infinity;
+            const filteredDays = visibleDays.map((day) => {
+                const dayDate = new Date(`${day.key}T12:00:00`);
+                const isToday = day.key === todayKey;
+                const showMonthLabel = !day.isCurrentMonth || dayDate.getDate() === 1;
+                const inlineEvents = day.events.filter((ev) => !isSpanningEvent(ev));
+                const visibleEvents = maxVisible === Infinity
+                    ? inlineEvents
+                    : inlineEvents.slice(0, maxVisible);
+                const overflowCount = inlineEvents.length - visibleEvents.length;
+
+                return {
+                    ...day,
+                    dayNumber: dayDate.getDate(),
+                    ariaLabel: DAY_LABEL_FORMATTER.format(dayDate),
+                    addButtonLabel: `Add event for ${DAY_LABEL_FORMATTER.format(dayDate)}`,
+                    dateBadgeClass: this._buildDateBadgeClass(day, isToday),
+                    headerMetaLabel: isToday ? 'Today' : showMonthLabel ? MONTH_SHORT_FORMATTER.format(dayDate) : '',
+                    showHeaderMetaLabel: isToday || showMonthLabel,
+                    eventsClass:
+                        overflowCount > 0
+                            ? 'events events--overflow'
+                            : 'events',
+                    events: visibleEvents.map((eventRecord) => ({
+                        ...eventRecord,
+                        showTimeLabel: Boolean(eventRecord.timeLabel),
+                        eventAriaLabel:
+                            eventRecord.hoverText ||
+                            eventRecord.timeLabel ||
+                            eventRecord.name ||
+                            'Open event'
+                    })),
+                    overflowCount
+                };
+            });
+            return {
+                ...week,
+                days: filteredDays,
+                spanningBarRows,
+                hasSpanning: spanningBarRows.length > 0,
+                spanKey: `span-${week.key}`,
+                daysKey: `days-${week.key}`
+            };
+        });
     }
 
     get columnsStyle() {
@@ -82,7 +152,21 @@ export default class CalendarGrid extends LightningElement {
     }
 
     get shellClass() {
-        return this.singleRow ? 'calendar-shell calendar-shell--single-row' : 'calendar-shell';
+        let classes = 'calendar-shell';
+
+        if (this.singleRow) {
+            classes += ' calendar-shell--single-row';
+        }
+
+        if (this.compactEventDensity) {
+            classes += ' calendar-shell--compact';
+        }
+
+        if (this.wrapEventTitles) {
+            classes += ' calendar-shell--wrap';
+        }
+
+        return classes;
     }
 
     get gridClass() {
@@ -90,11 +174,124 @@ export default class CalendarGrid extends LightningElement {
     }
 
     get gridStyle() {
-        const rowDefinition = this.autoExpandDayHeight
+        const rowDefinition = this.shouldAutoExpandRows
             ? 'repeat(' + this.rowCount + ', minmax(120px, auto))'
             : 'repeat(' + this.rowCount + ', minmax(0, 1fr))';
 
         return `grid-template-columns: repeat(${this.columnCount}, minmax(0, 1fr)); grid-template-rows: ${rowDefinition};`;
+    }
+
+    _buildSpanningBars(visibleDays) {
+        const seen = {};
+        visibleDays.forEach((day, i) => {
+            const col = i + 1;
+            (day.events || []).forEach((ev) => {
+                if (!isSpanningEvent(ev)) {
+                    return;
+                }
+                if (!seen[ev.id]) {
+                    seen[ev.id] = {
+                        event: ev,
+                        startCol: col,
+                        endCol: col,
+                        startsBeforeWeek: ev.isContinuation === true
+                    };
+                } else {
+                    seen[ev.id].endCol = col;
+                }
+            });
+        });
+
+        const bars = Object.values(seen).map((item) => {
+            const { event, startCol, endCol, startsBeforeWeek } = item;
+            const lastDay = visibleDays[endCol - 1];
+            const lastEvInstance = lastDay
+                ? (lastDay.events || []).find((e) => e.id === event.id)
+                : null;
+            const endsAfterWeek = lastEvInstance ? lastEvInstance.continuesAfter : false;
+            const spanCols = endCol - startCol + 1;
+            return {
+                key: `${event.id}-s${startCol}`,
+                id: event.id,
+                name: event.name,
+                hoverText: event.hoverText,
+                recordObjectApiName: event.recordObjectApiName,
+                recordContextId: event.recordContextId,
+                canEditAttr: event.canEditAttr,
+                canDeleteAttr: event.canDeleteAttr,
+                hasContextMenuAttr: event.hasContextMenuAttr,
+                occurrenceDate: event.occurrenceDate,
+                isRecurring: event.isRecurring,
+                statusLabel: event.statusLabel,
+                startCol,
+                spanCols,
+                startsBeforeWeek,
+                endsAfterWeek,
+                barClass: this._buildSpanBarClass(event, startsBeforeWeek, endsAfterWeek),
+                barStyle: this._buildSpanBarStyle(event, startCol, spanCols)
+            };
+        });
+
+        bars.sort((a, b) => b.spanCols - a.spanCols || a.startCol - b.startCol);
+
+        const rows = [];
+        bars.forEach((bar) => {
+            let placed = false;
+            for (const row of rows) {
+                const conflict = row.some(
+                    (ex) =>
+                        bar.startCol < ex.startCol + ex.spanCols &&
+                        bar.startCol + bar.spanCols > ex.startCol
+                );
+                if (!conflict) {
+                    row.push(bar);
+                    placed = true;
+                    break;
+                }
+            }
+            if (!placed) {
+                rows.push([bar]);
+            }
+        });
+
+        return rows.map((rowBars, i) => ({
+            key: `spanrow-${i}`,
+            bars: rowBars.sort((a, b) => a.startCol - b.startCol)
+        }));
+    }
+
+    _buildSpanBarClass(event, startsBeforeWeek, endsAfterWeek) {
+        let cls = 'spanning-bar';
+        if (event.statusLabel === 'Cancelled') {
+            cls += ' spanning-bar--cancelled';
+        }
+        if (startsBeforeWeek) {
+            cls += ' spanning-bar--starts-before';
+        }
+        if (endsAfterWeek) {
+            cls += ' spanning-bar--ends-after';
+        }
+        return cls;
+    }
+
+    _buildDateBadgeClass(day, isToday) {
+        let classes = 'day-date-badge';
+
+        if (!day.isCurrentMonth) {
+            classes += ' day-date-badge--muted';
+        }
+
+        if (isToday) {
+            classes += ' day-date-badge--today';
+        }
+
+        return classes;
+    }
+
+    _buildSpanBarStyle(event, startCol, spanCols) {
+        const color = sanitizeColor(event.calendarColor || '#1b96ff');
+        const textColor = readableTextColor(color);
+        return `background:${color}; color:${textColor}; grid-column:${startCol} / span ${spanCols};`;
     }
 
     handleDayClick(event) {
@@ -115,14 +312,32 @@ export default class CalendarGrid extends LightningElement {
         }
     }
 
+    handleMoreEventsClick(event) {
+        event.stopPropagation();
+        this.dispatchEvent(
+            new CustomEvent('moreevents', {
+                detail: { dateKey: event.currentTarget.dataset.date }
+            })
+        );
+    }
+
     handleDayAdd(event) {
         event.stopPropagation();
 
+        const btn = event.currentTarget;
+        const rect = btn.getBoundingClientRect();
         this.dispatchEvent(
-            new CustomEvent('dayselect', {
+            new CustomEvent('quickcreate', {
                 detail: {
-                    dateKey: event.currentTarget.dataset.date,
-                    isCurrentMonth: true
+                    dateKey: btn.dataset.date,
+                    anchorRect: {
+                        top: rect.top,
+                        left: rect.left,
+                        bottom: rect.bottom,
+                        right: rect.right,
+                        width: rect.width,
+                        height: rect.height
+                    }
                 }
             })
         );

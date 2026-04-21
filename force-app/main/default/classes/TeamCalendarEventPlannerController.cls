@@ -46,14 +46,14 @@ public with sharing class TeamCalendarEventPlannerController {
         Id customerContactId,
         Id customerAccountId,
         String appointmentType,
-        String templateKey
+        String templateName
     ) {
         PlanningContextDTO response = new PlanningContextDTO();
         response.customerContext = loadCustomerContext(
             customerContactId,
             customerAccountId,
             appointmentType,
-            templateKey
+            templateName
         );
         response.availability = loadAvailabilityInsight(assignedUserId, startValue, endValue);
         return response;
@@ -128,7 +128,7 @@ public with sharing class TeamCalendarEventPlannerController {
         Id customerContactId,
         Id customerAccountId,
         String appointmentType,
-        String templateKey
+        String templateName
     ) {
         CustomerContextDTO dto = new CustomerContextDTO();
 
@@ -178,7 +178,7 @@ public with sharing class TeamCalendarEventPlannerController {
             dto.contactName,
             dto.resolvedAccountName,
             appointmentType,
-            templateKey
+            templateName
         );
 
         return dto;
@@ -284,7 +284,7 @@ public with sharing class TeamCalendarEventPlannerController {
         String contactName,
         String accountName,
         String appointmentType,
-        String templateKey
+        String templateName
     ) {
         String subject = String.isNotBlank(contactName)
             ? contactName
@@ -295,12 +295,8 @@ public with sharing class TeamCalendarEventPlannerController {
         }
 
         String suffix;
-        if (templateKey == 'salesCall') {
-            suffix = 'Sales Call';
-        } else if (templateKey == 'serviceFollowUp') {
-            suffix = 'Service Follow-Up';
-        } else if (templateKey == 'internalReview') {
-            suffix = 'Internal Review';
+        if (String.isNotBlank(templateName)) {
+            suffix = templateName.trim();
         } else if (appointmentType == 'Follow-Up') {
             suffix = 'Follow-Up';
         } else if (appointmentType == 'Customer') {

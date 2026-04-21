@@ -340,7 +340,6 @@ public with sharing class TeamCalendarRecordMutationService {
         delete existingTasks[0];
         return existingTasks[0].Id;
     }
-
     private static void enforceCalendarEventMutationAccess(
         Id runningUserId,
         Boolean isSecurityAdmin,

@@ -7,17 +7,38 @@
 -->
 <template>
     <template if:true={hasItems}>
-        <div class="slds-grid slds-wrap slds-gutters_x-small slds-p-horizontal_small slds-p-bottom_small">
+        <div class="legend slds-p-horizontal_small slds-p-bottom_small">
             <template for:each={normalizedItems} for:item="item">
-                <div key={item.key} class="slds-col slds-no-flex">
-                    <span class="slds-pill">
-                        <span class="slds-pill__label slds-grid slds-grid_vertical-align-center slds-gutters_x-small">
-                            <span class="slds-col slds-no-flex">
-                                <span style={item.swatchStyle}></span>
-                            </span>
-                            <span class="slds-col">{item.label}</span>
-                        </span>
-                    </span>
+                <div key={item.key} class="legend-item slds-box slds-theme_default">
+                    <div class="legend-item__summary">
+                        <span class="legend-item__swatch" style={item.swatchStyle}></span>
+                        <div class="legend-item__text">
+                            <span class="legend-item__label">{item.label}</span>
+                            <span class="legend-item__value">{item.color}</span>
+                        </div>
+                    </div>
+                    <template if:true={editable}>
+                        <div class="legend-item__actions">
+                            <input
+                                class="legend-item__picker"
+                                type="color"
+                                value={item.color}
+                                data-item-id={item.id}
+                                aria-label={item.colorPickerLabel}
+                                onchange={handleColorChange}
+                            />
+                            <button
+                                type="button"
+                                class="slds-button slds-button_neutral legend-item__reset"
+                                data-item-id={item.id}
+                                title={item.resetLabel}
+                                onclick={handleResetClick}
+                                disabled={item.isDefaultColor}
+                            >
+                                Reset
+                            </button>
+                        </div>
+                    </template>
                 </div>
             </template>
         </div>

@@ -1,1 +1,71 @@
-/* All classes removed — HTML uses SLDS pill/grid classes */
+.legend {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 0.5rem;
+}
+
+.legend-item {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+	min-width: 14rem;
+	padding: 0.5rem 0.65rem;
+	border-radius: 0.5rem;
+}
+
+.legend-item__summary {
+	display: flex;
+	align-items: center;
+	gap: 0.5rem;
+	min-width: 0;
+}
+
+.legend-item__swatch {
+	flex: 0 0 auto;
+}
+
+.legend-item__text {
+	display: flex;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.legend-item__label {
+	color: #032d60;
+	font-weight: 600;
+}
+
+.legend-item__value {
+	color: #5f6a72;
+	font-size: 0.72rem;
+	text-transform: uppercase;
+}
+
+.legend-item__actions {
+	display: flex;
+	align-items: center;
+	gap: 0.4rem;
+	flex: 0 0 auto;
+}
+
+.legend-item__picker {
+	width: 2.25rem;
+	height: 2rem;
+	padding: 0;
+	border: 1px solid #c9c7c5;
+	border-radius: 0.4rem;
+	background: #fff;
+	cursor: pointer;
+}
+
+.legend-item__reset {
+	white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+	.legend-item {
+		width: 100%;
+		min-width: 0;
+	}
+}

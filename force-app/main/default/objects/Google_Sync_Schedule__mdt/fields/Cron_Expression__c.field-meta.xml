@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Cron_Expression__c</fullName>
+    <description>CRON expression used when scheduling the Team Calendar Google sync job.</description>
+    <inlineHelpText>Use Salesforce CRON syntax, for example 0 0 * * * ? to run hourly.</inlineHelpText>
+    <label>Cron Expression</label>
+    <length>100</length>
+    <required>false</required>
+    <type>Text</type>
+</CustomField>

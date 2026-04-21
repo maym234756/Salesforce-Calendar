@@ -2,6 +2,13 @@
     display: block;
 }
 
+.toolbar__search-wrap {
+    min-width: 11rem;
+    max-width: 18rem;
+    flex: 1 1 11rem;
+    align-self: end;
+}
+
 .toolbar {
     display: grid;
     grid-template-columns: minmax(0, 1fr) 17.5rem;
@@ -461,5 +468,65 @@ c-calendar-security-manager {
 @media (max-width: 480px) {
     .user-chip-grid {
         grid-template-columns: 1fr;
+    }
+}
+
+/* ── Hamburger / Mobile Toolbar ──────────────────────────── */
+.toolbar__mobile-toggle {
+    display: none;
+    flex-direction: column;
+    justify-content: center;
+    gap: 4px;
+    margin-left: auto;
+    padding: 0.35rem 0.4rem;
+    background: transparent;
+    border: 1px solid #c9c9c9;
+    border-radius: 0.3rem;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.toolbar__mobile-toggle span {
+    display: block;
+    width: 1.2rem;
+    height: 2px;
+    background: #032d60;
+    border-radius: 1px;
+    transition: opacity 120ms ease;
+}
+
+@media (max-width: 640px) {
+    .toolbar__mobile-toggle {
+        display: flex;
+    }
+
+    /* Hide the full actions row by default on mobile */
+    .toolbar__actions {
+        display: none;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 0.45rem;
+        padding-top: 0.35rem;
+    }
+
+    /* Show when expanded */
+    .toolbar--mobile-expanded .toolbar__actions {
+        display: flex;
+    }
+
+    /* Make each action item full-width on mobile */
+    .toolbar__actions > .slds-col {
+        flex: 0 0 auto;
+        width: 100%;
+    }
+
+    .toolbar__search-wrap {
+        max-width: 100%;
+        width: 100%;
+    }
+
+    /* Hide the side panel on mobile (Google sync) */
+    .toolbar__side {
+        display: none;
     }
 }

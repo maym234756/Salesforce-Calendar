@@ -3,11 +3,45 @@
  * Extracted to reduce the main component file size.
  */
 
+const HEX_COLOR_REGEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
+
+function normalizeCalendarHexColor(rawValue, fallback = null) {
+    if (typeof rawValue !== 'string') {
+        return fallback;
+    }
+
+    const normalized = rawValue.trim().toLowerCase();
+    if (!normalized) {
+        return fallback;
+    }
+
+    const withHash = normalized.startsWith('#') ? normalized : `#${normalized}`;
+    return HEX_COLOR_REGEX.test(withHash) ? withHash : fallback;
+}
+
+function normalizeCalendarColorOverrides(rawValue) {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+        return {};
+    }
+
+    return Object.entries(rawValue).reduce((result, [calendarId, color]) => {
+        const normalizedCalendarId = typeof calendarId === 'string' ? calendarId.trim() : '';
+        const normalizedColor = normalizeCalendarHexColor(color);
+
+        if (normalizedCalendarId && normalizedColor) {
+            result[normalizedCalendarId] = normalizedColor;
+        }
+
+        return result;
+    }, {});
+}
+
 export function createDefaultLayoutPreference(overrides = {}) {
     return {
         defaultView: 'month',
         defaultCalendarViewId: '',
         defaultStatus: '',
+        calendarColorOverrides: {},
         showSecurityButton: true,
         showRefreshButton: true,
         showTodayButton: true,
@@ -37,6 +71,7 @@ export function normalizeLayoutPreference(rawValue) {
                 : 'month',
         defaultCalendarViewId: source.defaultCalendarViewId || '',
         defaultStatus: source.defaultStatus || '',
+        calendarColorOverrides: normalizeCalendarColorOverrides(source.calendarColorOverrides),
         showSecurityButton:
             source.showSecurityButton === undefined
                 ? fallback.showSecurityButton

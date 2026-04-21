@@ -8,6 +8,7 @@
 public with sharing class GoogleCalendarSyncService {
     private static final Integer BULK_CHUNK_SIZE = 40;
     private static final Integer IMPORT_PAGE_SIZE = 250;
+    private static final Long SCHEDULED_SYNC_GRACE_MILLIS = 2000;
 
     public class SyncResult {
         @AuraEnabled public Boolean success;
@@ -219,6 +220,19 @@ public with sharing class GoogleCalendarSyncService {
 
     @AuraEnabled
     public static SyncResult pushEventsForCalendar(Id calendarId, Datetime start, Datetime endDate) {
+        return queueEventsForCalendar(calendarId, start, endDate, false);
+    }
+
+    public static SyncResult pushChangedEventsForCalendar(Id calendarId, Datetime start, Datetime endDate) {
+        return queueEventsForCalendar(calendarId, start, endDate, true);
+    }
+
+    private static SyncResult queueEventsForCalendar(
+        Id calendarId,
+        Datetime start,
+        Datetime endDate,
+        Boolean changedOnly
+    ) {
         SyncResult result = new SyncResult();
 
         if (calendarId == null) {
@@ -252,26 +266,13 @@ public with sharing class GoogleCalendarSyncService {
             return result;
         }
 
-        String soql =
-            'SELECT Id ' +
-            'FROM Calendar_Event__c ' +
-            'WHERE Calendar__c = :calendarId';
-
-        if (start != null) {
-            soql += ' AND (End__c = NULL OR End__c >= :start)';
-        }
-
-        if (endDate != null) {
-            soql += ' AND Start__c <= :endDate';
-        }
-
-        soql += ' ORDER BY Start__c ASC LIMIT 50000';
-
-        List<Calendar_Event__c> rows = Database.query(soql);
+        List<Calendar_Event__c> rows = loadEventsForCalendar(calendarId, start, endDate, changedOnly);
 
         if (rows.isEmpty()) {
             result.success = true;
-            result.message = 'No events found to sync for the selected range.';
+            result.message = changedOnly
+                ? 'No changed events found to sync for the configured schedule.'
+                : 'No events found to sync for the selected range.';
             result.processedCount = 0;
             result.errorCount = 0;
             return result;
@@ -294,10 +295,67 @@ public with sharing class GoogleCalendarSyncService {
         );
 
         result.success = true;
-        result.message = 'Google sync job queued for ' + eventIds.size() + ' events.';
+        result.message = changedOnly
+            ? 'Scheduled Google sync queued for ' + eventIds.size() + ' changed event' + (eventIds.size() == 1 ? '' : 's') + '.'
+            : 'Google sync job queued for ' + eventIds.size() + ' events.';
         result.processedCount = eventIds.size();
         result.errorCount = 0;
         return result;
+    }
+
+    private static List<Calendar_Event__c> loadEventsForCalendar(
+        Id calendarId,
+        Datetime start,
+        Datetime endDate,
+        Boolean changedOnly
+    ) {
+        String soql =
+            'SELECT Id, Last_Synced_At__c, Sync_Status__c, LastModifiedDate ' +
+            'FROM Calendar_Event__c ' +
+            'WHERE Calendar__c = :calendarId';
+
+        if (start != null) {
+            soql += ' AND (End__c = NULL OR End__c >= :start)';
+        }
+
+        if (endDate != null) {
+            soql += ' AND Start__c <= :endDate';
+        }
+
+        soql += ' ORDER BY Start__c ASC LIMIT 50000';
+
+        List<Calendar_Event__c> rows = Database.query(soql);
+        if (changedOnly != true) {
+            return rows;
+        }
+
+        List<Calendar_Event__c> changedRows = new List<Calendar_Event__c>();
+        for (Calendar_Event__c row : rows) {
+            if (shouldQueueScheduledEvent(row)) {
+                changedRows.add(row);
+            }
+        }
+        return changedRows;
+    }
+
+    private static Boolean shouldQueueScheduledEvent(Calendar_Event__c row) {
+        if (row == null) {
+            return false;
+        }
+
+        if (row.Last_Synced_At__c == null) {
+            return true;
+        }
+
+        if (row.Sync_Status__c == 'Error') {
+            return true;
+        }
+
+        if (row.LastModifiedDate == null) {
+            return false;
+        }
+
+        return row.LastModifiedDate.getTime() > (row.Last_Synced_At__c.getTime() + SCHEDULED_SYNC_GRACE_MILLIS);
     }
 
     public class BulkGoogleSyncQueueable implements System.Queueable, Database.AllowsCallouts {

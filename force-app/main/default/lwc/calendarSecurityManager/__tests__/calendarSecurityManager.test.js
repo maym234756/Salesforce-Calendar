@@ -40,6 +40,26 @@ jest.mock(
   () => ({ default: jest.fn(() => Promise.resolve(0)) }),
   { virtual: true }
 );
+jest.mock(
+  '@salesforce/apex/TeamCalendarEventTemplateService.getEventTemplatesForAdmin',
+  () => ({ default: jest.fn(() => Promise.resolve([])) }),
+  { virtual: true }
+);
+jest.mock(
+  '@salesforce/apex/TeamCalendarEventTemplateService.getTemplateCalendars',
+  () => ({ default: jest.fn(() => Promise.resolve([])) }),
+  { virtual: true }
+);
+jest.mock(
+  '@salesforce/apex/TeamCalendarEventTemplateService.saveEventTemplate',
+  () => ({ default: jest.fn(() => Promise.resolve({ id: 'a009', name: 'Saved Template', durationMinutes: 45, calendarId: 'a0101', calendarName: 'Revenue Team', defaultStatus: 'Confirmed', notes: 'Saved note', isActive: true })) }),
+  { virtual: true }
+);
+jest.mock(
+  '@salesforce/apex/TeamCalendarEventTemplateService.deleteEventTemplate',
+  () => ({ default: jest.fn(() => Promise.resolve()) }),
+  { virtual: true }
+);
 
 const CalendarSecurityManager = require('c/calendarSecurityManager').default;
 const getSecurityUsers = require('@salesforce/apex/TeamCalendarSecurityController.getSecurityUsers').default;
@@ -47,6 +67,10 @@ const getCalendarViewsForSecurity = require('@salesforce/apex/TeamCalendarSecuri
 const getUserCalendarAccess = require('@salesforce/apex/TeamCalendarSecurityController.getUserCalendarAccess').default;
 const saveUserCalendarAccess = require('@salesforce/apex/TeamCalendarSecurityController.saveUserCalendarAccess').default;
 const saveUserLayoutPreference = require('@salesforce/apex/TeamCalendarSecurityController.saveUserLayoutPreference').default;
+const getEventTemplatesForAdmin = require('@salesforce/apex/TeamCalendarEventTemplateService.getEventTemplatesForAdmin').default;
+const getTemplateCalendars = require('@salesforce/apex/TeamCalendarEventTemplateService.getTemplateCalendars').default;
+const saveEventTemplate = require('@salesforce/apex/TeamCalendarEventTemplateService.saveEventTemplate').default;
+const { applyAccessPresetToRows } = require('../calendarSecurityManagerHelpers');
 
 const flushPromises = () => new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -59,6 +83,10 @@ async function openLayoutTab(element) {
   const tabs = element.shadowRoot.querySelectorAll('.security-tabs__button');
   tabs[1].click();
   await flushPromises();
+}
+
+function clickFooterSaveButton(element) {
+  element.shadowRoot.querySelector('footer .slds-button_brand').click();
 }
 
 const mockUsers = [
@@ -143,6 +171,21 @@ function setupMocks() {
   getSecurityUsers.mockResolvedValue(mockUsers);
   getCalendarViewsForSecurity.mockResolvedValue(mockCalendarViews);
   getUserCalendarAccess.mockResolvedValue(mockAccessResponse);
+  getEventTemplatesForAdmin.mockResolvedValue([
+    {
+      id: 'a008',
+      name: 'Discovery Call',
+      durationMinutes: 60,
+      calendarId: 'a0101',
+      calendarName: 'Revenue Team',
+      defaultStatus: 'Planned',
+      notes: 'Current note',
+      isActive: true
+    }
+  ]);
+  getTemplateCalendars.mockResolvedValue([
+    { id: 'a0101', name: 'Revenue Team', ownerId: '005A', ownerName: 'Afton Everett' }
+  ]);
 }
 
 describe('c-calendar-security-manager', () => {
@@ -282,25 +325,23 @@ describe('c-calendar-security-manager', () => {
   });
 
   it('editor preset clears stronger permissions on the target row', async () => {
-    const result = CalendarSecurityManager.prototype.applyAccessPresetToRows.call(
-      {
-        allAccessRows: [
-          {
-            id: '00U1',
-            name: 'Albert Open Tasks',
-            ownerId: '005O1',
-            ownerName: 'Albert Hylton',
-            canView: true,
-            canCreate: true,
-            canEdit: true,
-            canDelete: true,
-            canAssignUsers: true,
-            canManageSecurity: true,
-            isActive: true,
-            notes: ''
-          }
-        ]
-      },
+    const result = applyAccessPresetToRows(
+      [
+        {
+          id: '00U1',
+          name: 'Albert Open Tasks',
+          ownerId: '005O1',
+          ownerName: 'Albert Hylton',
+          canView: true,
+          canCreate: true,
+          canEdit: true,
+          canDelete: true,
+          canAssignUsers: true,
+          canManageSecurity: true,
+          isActive: true,
+          notes: ''
+        }
+      ],
       new Set(['00U1']),
       'editor'
     );
@@ -331,7 +372,7 @@ describe('c-calendar-security-manager', () => {
       .click();
     await flushPromises();
 
-    element.shadowRoot.querySelector('.slds-button_brand').click();
+    clickFooterSaveButton(element);
     await flushPromises();
 
     expect(saveUserLayoutPreference).toHaveBeenCalledTimes(1);
@@ -379,7 +420,7 @@ describe('c-calendar-security-manager', () => {
       .click();
     await flushPromises();
 
-    element.shadowRoot.querySelector('.slds-button_brand').click();
+    clickFooterSaveButton(element);
     await flushPromises();
 
     const payload = JSON.parse(saveUserLayoutPreference.mock.calls[0][0].preferenceJson);
@@ -410,5 +451,198 @@ describe('c-calendar-security-manager', () => {
     expect(summaryLines.some((line) => line.includes('Selected Users hidden'))).toBe(true);
     expect(summaryLines.some((line) => line.includes('filters hidden'))).toBe(true);
     expect(summaryLines.some((line) => line.includes('compact density'))).toBe(true);
+  });
+
+  it('reads template field metadata from composedPath when Lightning retargets the event', () => {
+    const context = {
+      templateDraft: {
+        id: '',
+        name: '',
+        durationMinutes: 60,
+        calendarId: '',
+        calendarName: '',
+        defaultStatus: 'Planned',
+        notes: '',
+        isActive: true
+      }
+    };
+
+    CalendarSecurityManager.prototype.handleTemplateFieldChange.call(context, {
+      target: {},
+      currentTarget: {},
+      detail: { value: 'Saved Template' },
+      composedPath: () => [
+        {
+          tagName: 'LIGHTNING-INPUT',
+          dataset: { field: 'name' },
+          type: 'text',
+          value: 'Saved Template'
+        }
+      ]
+    });
+
+    expect(context.templateDraft.name).toBe('Saved Template');
+  });
+
+  it('reads layout checkbox metadata from composedPath when Lightning retargets the event', () => {
+    const context = {
+      layoutDraft: {
+        defaultView: 'month',
+        allowedSelectedUserIds: [],
+        showNewButton: false
+      },
+      defaultAllowedSelectedUserIds: [],
+      enforceAccessibleDefaultCalendar: jest.fn(),
+      enforceAllowedSelectedUsers: jest.fn(),
+      cacheCurrentLayoutDraft: jest.fn()
+    };
+
+    CalendarSecurityManager.prototype.handleLayoutFieldChange.call(context, {
+      target: {},
+      currentTarget: {},
+      composedPath: () => [
+        {
+          tagName: 'LIGHTNING-INPUT',
+          dataset: { field: 'showNewButton' },
+          type: 'checkbox',
+          checked: true
+        }
+      ]
+    });
+
+    expect(context.layoutDraft.showNewButton).toBe(true);
+    expect(context.cacheCurrentLayoutDraft).toHaveBeenCalledTimes(1);
+  });
+
+  it('reads access rule metadata from composedPath when Lightning retargets the event', () => {
+    const context = {
+      allAccessRows: [
+        {
+          id: '00U1',
+          name: 'Albert Open Tasks',
+          ownerId: '005O1',
+          ownerName: 'Albert Hylton',
+          canView: false,
+          canCreate: false,
+          canEdit: false,
+          canDelete: false,
+          canAssignUsers: false,
+          canManageSecurity: false,
+          isActive: false,
+          notes: ''
+        }
+      ],
+      enforceAccessibleDefaultCalendar: jest.fn(),
+      cacheCurrentLayoutDraft: jest.fn()
+    };
+
+    CalendarSecurityManager.prototype.handleRuleToggle.call(context, {
+      target: {},
+      currentTarget: {},
+      composedPath: () => [
+        {
+          tagName: 'LIGHTNING-INPUT',
+          dataset: {
+            id: '00U1',
+            field: 'canEdit'
+          },
+          type: 'checkbox',
+          checked: true
+        }
+      ]
+    });
+
+    expect(context.allAccessRows[0].canEdit).toBe(true);
+    expect(context.allAccessRows[0].canView).toBe(true);
+    expect(context.allAccessRows[0].isActive).toBe(true);
+  });
+
+  it('serializes live template form values when the draft state is stale', async () => {
+    const controlsBySelector = {
+      '.security-template-form__field[data-field="name"] lightning-input': { value: 'Live DOM Template' },
+      '.security-template-form__field[data-field="durationMinutes"] lightning-input': { value: '45' },
+      '.security-template-form__field[data-field="calendarId"] lightning-combobox': { value: 'a0101' },
+      '.security-template-form__field[data-field="defaultStatus"] lightning-combobox': { value: 'Confirmed' },
+      '.security-template-form__field[data-field="notes"] lightning-textarea': { value: 'Pulled from DOM at save time.' },
+      '.security-template-form__field[data-field="isActive"] lightning-input': { checked: true }
+    };
+
+    const context = {
+      templateDraft: {
+        id: '',
+        name: '',
+        durationMinutes: 60,
+        calendarId: '',
+        calendarName: '',
+        defaultStatus: 'Planned',
+        notes: '',
+        isActive: true
+      },
+      selectedTemplateId: '',
+      eventTemplates: [],
+      template: {
+        querySelector: jest.fn((selector) => controlsBySelector[selector] || null)
+      },
+      dispatchEvent: jest.fn(),
+      selectTemplate: jest.fn(),
+      showError: jest.fn(),
+      isSaving: false,
+      syncTemplateDraftFromForm: CalendarSecurityManager.prototype.syncTemplateDraftFromForm
+    };
+
+    saveEventTemplate.mockResolvedValue({
+      id: 'a009',
+      name: 'Live DOM Template',
+      durationMinutes: 45,
+      calendarId: 'a0101',
+      calendarName: 'Revenue Team',
+      defaultStatus: 'Confirmed',
+      notes: 'Pulled from DOM at save time.',
+      isActive: true
+    });
+
+    await CalendarSecurityManager.prototype.handleTemplateSave.call(context);
+
+    const payload = JSON.parse(saveEventTemplate.mock.calls[0][0].templateJson);
+    expect(payload.name).toBe('Live DOM Template');
+    expect(payload.durationMinutes).toBe(45);
+    expect(payload.calendarId).toBe('a0101');
+    expect(payload.defaultStatus).toBe('Confirmed');
+    expect(payload.notes).toBe('Pulled from DOM at save time.');
+  });
+
+  it('saves a global event template from the layout tab', async () => {
+    setupMocks();
+
+    const element = createElement('c-calendar-security-manager', {
+      is: CalendarSecurityManager
+    });
+    document.body.appendChild(element);
+    await flushPromises();
+
+    await openSecurityModal(element);
+    await openLayoutTab(element);
+
+    const titleInput = Array.from(element.shadowRoot.querySelectorAll('lightning-input')).find(
+      (input) => input.label === 'Template Title'
+    );
+    titleInput.value = 'Saved Template';
+    titleInput.dispatchEvent(
+      new CustomEvent('change', {
+        detail: { value: 'Saved Template' },
+        bubbles: true,
+        composed: true
+      })
+    );
+
+    const saveButton = Array.from(element.shadowRoot.querySelectorAll('.slds-button_brand')).find(
+      (button) => button.textContent.includes('Save Template')
+    );
+    saveButton.click();
+    await flushPromises();
+
+    expect(saveEventTemplate).toHaveBeenCalledTimes(1);
+    const payload = JSON.parse(saveEventTemplate.mock.calls[0][0].templateJson);
+    expect(payload.name).toBe('Saved Template');
   });
 });

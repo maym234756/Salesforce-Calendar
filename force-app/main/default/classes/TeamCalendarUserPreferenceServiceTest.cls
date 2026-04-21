@@ -24,10 +24,12 @@ private class TeamCalendarUserPreferenceServiceTest {
         System.assertEquals(true, dto.showFiltersButton);
         System.assertEquals(true, dto.showSelectUsersBox);
         System.assertEquals(true, dto.showFilterControls);
+        System.assertEquals(0, dto.calendarColorOverrides.size());
     }
 
     @IsTest
     static void savePreferenceForTargetUser_roundTripsValues() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
@@ -35,6 +37,9 @@ private class TeamCalendarUserPreferenceServiceTest {
         inputRow.defaultView = 'agenda';
         inputRow.defaultCalendarViewId = '03AV000000TEST01';
         inputRow.defaultStatus = 'Confirmed';
+        inputRow.calendarColorOverrides = new Map<String, String>{
+            'a0B000000000001AAA' => '#ff6600'
+        };
         inputRow.showSecurityButton = false;
         inputRow.showRefreshButton = true;
         inputRow.showTodayButton = false;
@@ -53,12 +58,14 @@ private class TeamCalendarUserPreferenceServiceTest {
         };
         inputRow.isActive = true;
 
-        Test.startTest();
-        TeamCalendarUserPreferenceService.UserPreferenceDTO saved =
-            TeamCalendarUserPreferenceService.savePreferenceForTargetUser(targetUserId, inputRow);
+        TeamCalendarUserPreferenceService.UserPreferenceDTO saved;
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
 
-        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded =
-            TeamCalendarUserPreferenceService.getPreferenceForTargetUser(targetUserId);
+        Test.startTest();
+        System.runAs(securityAdmin) {
+            saved = TeamCalendarUserPreferenceService.savePreferenceForTargetUser(targetUserId, inputRow);
+            loaded = TeamCalendarUserPreferenceService.getPreferenceForTargetUser(targetUserId);
+        }
         Test.stopTest();
 
         System.assertNotEquals(null, saved);
@@ -66,6 +73,7 @@ private class TeamCalendarUserPreferenceServiceTest {
         System.assertEquals('agenda', loaded.defaultView);
         System.assertEquals('03AV000000TEST01', loaded.defaultCalendarViewId);
         System.assertEquals('Confirmed', loaded.defaultStatus);
+        System.assertEquals('#ff6600', loaded.calendarColorOverrides.get('a0B000000000001AAA'));
         System.assertEquals(false, loaded.showSecurityButton);
         System.assertEquals(true, loaded.showRefreshButton);
         System.assertEquals(false, loaded.showTodayButton);
@@ -83,7 +91,28 @@ private class TeamCalendarUserPreferenceServiceTest {
     }
 
     @IsTest
+    static void savePreferenceForCurrentUser_roundTripsColorOverrides() {
+        TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
+            new TeamCalendarUserPreferenceService.UserPreferenceInput();
+        inputRow.defaultView = 'month';
+        inputRow.calendarColorOverrides = new Map<String, String>{
+            'a0B000000000001AAA' => '#ABC123',
+            'a0B000000000002AAA' => 'not-a-color'
+        };
+
+        TeamCalendarUserPreferenceService.UserPreferenceDTO saved;
+
+        Test.startTest();
+        saved = TeamCalendarUserPreferenceService.savePreferenceForCurrentUser(inputRow);
+        Test.stopTest();
+
+        System.assertEquals('#abc123', saved.calendarColorOverrides.get('a0B000000000001AAA'));
+        System.assertEquals(false, saved.calendarColorOverrides.containsKey('a0B000000000002AAA'));
+    }
+
+    @IsTest
     static void setShowSecurityButtonForAllUsers_updatesExistingAndDefaultRows() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         insert new Calendar_User_Preference__c(
@@ -104,10 +133,14 @@ private class TeamCalendarUserPreferenceServiceTest {
             Is_Active__c = true
         );
 
+        Integer updatedCount;
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
+
         Test.startTest();
-        Integer updatedCount = TeamCalendarUserPreferenceService.setShowSecurityButtonForAllUsers(false);
-        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded =
-            TeamCalendarUserPreferenceService.getPreferenceForTargetUser(targetUserId);
+        System.runAs(securityAdmin) {
+            updatedCount = TeamCalendarUserPreferenceService.setShowSecurityButtonForAllUsers(false);
+            loaded = TeamCalendarUserPreferenceService.getPreferenceForTargetUser(targetUserId);
+        }
         Test.stopTest();
 
         System.assert(updatedCount > 0, 'Expected at least one user preference row to be updated.');
@@ -117,6 +150,7 @@ private class TeamCalendarUserPreferenceServiceTest {
 
     @IsTest
     static void setLayoutFieldForAllUsers_updatesSupportedBooleanFields() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         insert new Calendar_User_Preference__c(
@@ -126,13 +160,17 @@ private class TeamCalendarUserPreferenceServiceTest {
             Is_Active__c = true
         );
 
+        Integer updatedCount;
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
+
         Test.startTest();
-        Integer updatedCount = TeamCalendarUserPreferenceService.setLayoutFieldForAllUsers(
-            'showFiltersButton',
-            false
-        );
-        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded =
-            TeamCalendarUserPreferenceService.getPreferenceForTargetUser(targetUserId);
+        System.runAs(securityAdmin) {
+            updatedCount = TeamCalendarUserPreferenceService.setLayoutFieldForAllUsers(
+                'showFiltersButton',
+                false
+            );
+            loaded = TeamCalendarUserPreferenceService.getPreferenceForTargetUser(targetUserId);
+        }
         Test.stopTest();
 
         System.assert(updatedCount > 0, 'Expected at least one user preference row to be updated.');

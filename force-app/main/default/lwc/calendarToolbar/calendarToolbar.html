@@ -11,6 +11,15 @@
             <div class="toolbar__header">
                 <h2 class="toolbar__range-label">{rangeLabel}</h2>
                 <div class="toolbar__event-count">{eventCount} event(s)</div>
+                <button
+                    type="button"
+                    class="toolbar__mobile-toggle"
+                    onclick={handleMobileMenuToggle}
+                    aria-expanded={mobileMenuExpanded}
+                    title="Toggle toolbar menu"
+                >
+                    <span></span><span></span><span></span>
+                </button>
             </div>
 
             <div
@@ -54,6 +63,17 @@
                         <lightning-button label="New Event" variant="brand" onclick={emitNew}></lightning-button>
                     </div>
                 </template>
+
+                <div class="slds-col toolbar__search-wrap">
+                    <lightning-input
+                        type="search"
+                        label="Search events"
+                        variant="label-hidden"
+                        placeholder="Search events…"
+                        value={_searchTerm}
+                        oninput={handleSearchInput}
+                    ></lightning-input>
+                </div>
 
                 <template if:true={showFiltersButton}>
                     <div class="slds-col slds-grow-none toolbar__filter-anchor">
@@ -140,6 +160,22 @@
                             onchange={handleStatusChange}
                         >
                         </lightning-combobox>
+                    </div>
+
+                    <div class="slds-col slds-grow-none toolbar__pdf-action">
+                        <lightning-button
+                            label="Export CSV"
+                            onclick={emitExportCsv}
+                            title="Export visible events to CSV"
+                        ></lightning-button>
+                    </div>
+
+                    <div class="slds-col slds-grow-none toolbar__pdf-action">
+                        <lightning-button
+                            label="Export iCal"
+                            onclick={emitExportIcal}
+                            title="Export visible events to iCal"
+                        ></lightning-button>
                     </div>
 
                     <div class="slds-col slds-grow-none toolbar__pdf-action">

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Notes__c</fullName>
+    <type>LongTextArea</type>
+    <description>Default notes copied into the event form when the template is selected.</description>
+    <inlineHelpText>Enter reusable instructions or details for this template.</inlineHelpText>
+    <label>Notes</label>
+    <length>32768</length>
+    <visibleLines>4</visibleLines>
+</CustomField>

@@ -164,11 +164,11 @@ export function buildCalendarWeeks(currentDate, currentView, events) {
             const key = dateKey(cursor);
             const dayOfWeek = cursor.getDay();
             const isCurrentMonth = currentView === 'week' ? true : cursor.getMonth() === monthIndex;
-            const rawDayEvents = [...(groupedByDay[key] || [])].sort(sortRenderedEvents);
-
-            const maxVisible = currentView === 'month' ? 3 : rawDayEvents.length;
-            const visibleEvents = rawDayEvents.slice(0, maxVisible);
-            const hiddenCount = rawDayEvents.length - visibleEvents.length;
+            const sortedEvents = [...(groupedByDay[key] || [])].sort(sortRenderedEvents);
+            const spanningEvents = sortedEvents.filter(isSpanningGridEvent);
+            const inlineEvents = sortedEvents.filter((ev) => !isSpanningGridEvent(ev));
+            const visibleInline = inlineEvents;
+            const hiddenCount = 0;
 
             week.days.push({
                 key,
@@ -177,10 +177,10 @@ export function buildCalendarWeeks(currentDate, currentView, events) {
                 isWeekend: dayOfWeek === 0 || dayOfWeek === 6,
                 currentMonthAttr: isCurrentMonth ? 'true' : 'false',
                 className: dayClass(isCurrentMonth, key === todayKey, dayOfWeek),
-                events: visibleEvents,
+                events: [...spanningEvents, ...visibleInline],
                 hiddenCount,
                 showMore: hiddenCount > 0,
-                showNoEvents: isCurrentMonth && rawDayEvents.length === 0
+                showNoEvents: isCurrentMonth && sortedEvents.length === 0
             });
 
             cursor = addDays(cursor, 1);
@@ -265,6 +265,9 @@ function buildRenderedEvent(eventRecord, occurrenceKey) {
         canEditAttr: canEdit ? 'true' : 'false',
         canDeleteAttr: canDelete ? 'true' : 'false',
         hasContextMenuAttr: hasContextMenu ? 'true' : 'false',
+        calendarColor,
+        occurrenceDate: eventRecord.occurrenceDate || null,
+        isRecurring: Boolean(eventRecord.isRecurring),
         isDraggable
     };
 }
@@ -380,6 +383,10 @@ function eventClass(status, isContinuation) {
     return className;
 }
 
+function isSpanningGridEvent(eventRecord) {
+    return eventRecord?.isContinuation === true || eventRecord?.continuesAfter === true;
+}
+
 function dayClass(isCurrentMonth, isToday, dayOfWeek) {
     let className = 'day-cell slds-p-around_x-small';
 
@@ -431,11 +438,11 @@ function formatTime(dateValue) {
 const DEFAULT_COLOR = '#1b96ff';
 const HEX_COLOR_REGEX = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i;
 
-function sanitizeColor(colorValue) {
+export function sanitizeColor(colorValue) {
     return HEX_COLOR_REGEX.test(colorValue || '') ? colorValue : DEFAULT_COLOR;
 }
 
-function readableTextColor(colorValue) {
+export function readableTextColor(colorValue) {
     if (!HEX_COLOR_REGEX.test(colorValue || '')) {
         return '#080707';
     }

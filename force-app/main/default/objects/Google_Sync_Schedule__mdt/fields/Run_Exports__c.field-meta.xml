@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Run_Exports__c</fullName>
+    <defaultValue>true</defaultValue>
+    <description>Controls whether scheduled runs should push changed Salesforce events to Google.</description>
+    <inlineHelpText>Scheduled exports only queue unsynced, changed, or previously errored events inside the configured date window.</inlineHelpText>
+    <label>Run Exports</label>
+    <type>Checkbox</type>
+</CustomField>

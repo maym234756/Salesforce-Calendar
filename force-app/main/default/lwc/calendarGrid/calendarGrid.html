@@ -14,72 +14,132 @@
                 </template>
             </div>
 
-            <div class={gridClass} style={gridStyle}>
+            <div class={gridClass}>
                 <template for:each={filteredWeeks} for:item="week">
-                    <template for:each={week.days} for:item="day">
-                        <div
-                            key={day.key}
-                            class={day.className}
-                            data-date={day.key}
-                            data-current-month={day.currentMonthAttr}
-                            role="button"
-                            tabindex="0"
-                            onclick={handleDayClick}
-                            onkeydown={handleDayKeyDown}
-                            ondragover={handleDayDragOver}
-                            ondragleave={handleDayDragLeave}
-                            ondrop={handleDayDrop}
-                        >
-                            <div class="day-header">
-                                <span>{day.label}</span>
+                    <div key={week.key} class="week-block">
 
-                                <template if:true={day.isCurrentMonth}>
-                                    <button
-                                        type="button"
-                                        class="day-add-btn"
-                                        data-date={day.key}
-                                        onclick={handleDayAdd}
-                                        title="Add event"
-                                    >
-                                        +
-                                    </button>
+                        <template if:true={week.hasSpanning}>
+                            <div class="spanning-section">
+                                <template for:each={week.spanningBarRows} for:item="barRow">
+                                    <div key={barRow.key} class="spanning-bar-row" style={columnsStyle}>
+                                        <template for:each={barRow.bars} for:item="bar">
+                                            <button
+                                                key={bar.key}
+                                                type="button"
+                                                class={bar.barClass}
+                                                style={bar.barStyle}
+                                                aria-label={bar.hoverText}
+                                                title={bar.hoverText}
+                                                data-id={bar.id}
+                                                data-name={bar.name}
+                                                data-record-object-api-name={bar.recordObjectApiName}
+                                                data-record-context-id={bar.recordContextId}
+                                                data-can-edit={bar.canEditAttr}
+                                                data-can-delete={bar.canDeleteAttr}
+                                                data-can-context-menu={bar.hasContextMenuAttr}
+                                                data-can-drag="false"
+                                                data-occurrence-date={bar.occurrenceDate}
+                                                data-is-recurring={bar.isRecurring}
+                                                onclick={handleEventOpen}
+                                                onmouseenter={handleEventHover}
+                                                onmouseleave={handleEventUnhover}
+                                            >
+                                                <span class="spanning-bar-title">{bar.name}</span>
+                                            </button>
+                                        </template>
+                                    </div>
                                 </template>
                             </div>
+                        </template>
 
-                            <div class="events">
-                                <template for:each={day.events} for:item="event">
-                                    <button
-                                        key={event.id}
-                                        type="button"
-                                        class={event.className}
-                                        style={event.styleText}
-                                        title={event.hoverText}
-                                        data-id={event.id}
-                                        data-name={event.name}
-                                        data-record-object-api-name={event.recordObjectApiName}
-                                        data-record-context-id={event.recordContextId}
-                                        data-can-edit={event.canEditAttr}
-                                        data-can-delete={event.canDeleteAttr}
-                                        data-can-context-menu={event.hasContextMenuAttr}
-                                        data-can-drag={event.isDraggable}
-                                        data-occurrence-date={event.occurrenceDate}
-                                        data-is-recurring={event.isRecurring}
-                                        draggable={event.isDraggable}
-                                        onclick={handleEventOpen}
-                                        onmouseenter={handleEventHover}
-                                        onmouseleave={handleEventUnhover}
-                                        ondragstart={handleEventDragStart}
-                                        ondragend={handleEventDragEnd}
-                                        onpointerdown={handleEventPointerDown}
-                                        onmousedown={handleEventMouseDown}
-                                        oncontextmenu={handleEventContextMenu}
-                                    >
-                                        <div class="event-title">{event.name}</div>
-                                    </button>
-                                </template>
-                            </div>
+                        <div class={weekDaysClass} style={columnsStyle}>
+                            <template for:each={week.days} for:item="day">
+                                <div
+                                    key={day.key}
+                                    class={day.className}
+                                    data-date={day.key}
+                                    data-current-month={day.currentMonthAttr}
+                                    aria-label={day.ariaLabel}
+                                    role="button"
+                                    tabindex="0"
+                                    onclick={handleDayClick}
+                                    onkeydown={handleDayKeyDown}
+                                    ondragover={handleDayDragOver}
+                                    ondragleave={handleDayDragLeave}
+                                    ondrop={handleDayDrop}
+                                >
+                                    <div class="day-header">
+                                        <div class="day-header-main">
+                                            <span class={day.dateBadgeClass}>{day.dayNumber}</span>
+                                            <template if:true={day.showHeaderMetaLabel}>
+                                                <span class="day-header-meta">{day.headerMetaLabel}</span>
+                                            </template>
+                                        </div>
+
+                                        <template if:true={day.isCurrentMonth}>
+                                            <button
+                                                type="button"
+                                                class="day-add-btn"
+                                                data-date={day.key}
+                                                aria-label={day.addButtonLabel}
+                                                onclick={handleDayAdd}
+                                                title={day.addButtonLabel}
+                                            >
+                                                +
+                                            </button>
+                                        </template>
+                                    </div>
+
+                                    <div class={day.eventsClass}>
+                                        <template for:each={day.events} for:item="event">
+                                            <button
+                                                key={event.id}
+                                                type="button"
+                                                class={event.className}
+                                                style={event.styleText}
+                                                aria-label={event.eventAriaLabel}
+                                                title={event.hoverText}
+                                                data-id={event.id}
+                                                data-name={event.name}
+                                                data-record-object-api-name={event.recordObjectApiName}
+                                                data-record-context-id={event.recordContextId}
+                                                data-can-edit={event.canEditAttr}
+                                                data-can-delete={event.canDeleteAttr}
+                                                data-can-context-menu={event.hasContextMenuAttr}
+                                                data-can-drag={event.isDraggable}
+                                                data-occurrence-date={event.occurrenceDate}
+                                                data-is-recurring={event.isRecurring}
+                                                draggable={event.isDraggable}
+                                                onclick={handleEventOpen}
+                                                onmouseenter={handleEventHover}
+                                                onmouseleave={handleEventUnhover}
+                                                ondragstart={handleEventDragStart}
+                                                ondragend={handleEventDragEnd}
+                                                onpointerdown={handleEventPointerDown}
+                                                onmousedown={handleEventMouseDown}
+                                                oncontextmenu={handleEventContextMenu}
+                                            >
+                                                <div class="event-title">{event.name}</div>
+                                                <template if:true={event.showTimeLabel}>
+                                                    <div class="event-meta">{event.timeLabel}</div>
+                                                </template>
+                                            </button>
+                                        </template>
+                                        <template if:true={day.overflowCount}>
+                                            <button
+                                                class="day-more-btn day-more-btn--overflow"
+                                                data-date={day.key}
+                                                aria-label="Show more events for this day"
+                                                onclick={handleMoreEventsClick}
+                                                title="Show all events for this day"
+                                            >+{day.overflowCount} more</button>
+                                        </template>
+                                    </div>
+                                </div>
+                            </template>
                         </div>
-                    </template>
+
+                    </div>
                 </template>
             </div>
         </div>

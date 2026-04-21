@@ -2,6 +2,7 @@ import { LightningElement, api } from 'lwc';
 import getPlanningContext from '@salesforce/apex/TeamCalendarEventPlannerController.getPlanningContext';
 import resolveCalendarIdForAssignedUser from '@salesforce/apex/TeamCalendarEventPlannerController.resolveCalendarIdForAssignedUser';
 import createCalendarEventSeries from '@salesforce/apex/TeamCalendarRecordMutationService.createCalendarEventSeries';
+import getActiveEventTemplates from '@salesforce/apex/TeamCalendarEventTemplateService.getActiveEventTemplates';
 import {
     DEFAULT_START_HOUR,
     DEFAULT_DURATION_MINUTES,
@@ -14,6 +15,7 @@ import {
     createDefaultCustomerContext,
     buildAssignableUserOptions,
     resolveDefaultAssignedUserId,
+    normalizeEventTemplates,
     buildEventTemplateOptions,
     buildTemplatePreset,
     buildResolvedCalendarLabel,
@@ -60,6 +62,7 @@ export default class CalendarCreateModal extends LightningElement {
     isSaving = false;
     pendingSubmissionSnapshot = null;
     selectedTemplateKey = DEFAULT_TEMPLATE_KEY;
+    eventTemplates = [];
     availabilityInsight = createDefaultAvailabilityInsight();
     customerContext = createDefaultCustomerContext();
     customerAccountId = null;
@@ -74,8 +77,14 @@ export default class CalendarCreateModal extends LightningElement {
     planningContextSequence = 0;
     calendarResolutionSequence = 0;
     recurrenceRule = '';
+    eventTemplatesInitialized = false;
 
     renderedCallback() {
+        if (!this.eventTemplatesInitialized) {
+            this.eventTemplatesInitialized = true;
+            this.loadEventTemplates();
+        }
+
         if (this.formInitialized) {
             return;
         }
@@ -122,15 +131,19 @@ export default class CalendarCreateModal extends LightningElement {
     }
 
     get templateOptions() {
-        return buildEventTemplateOptions();
+        return buildEventTemplateOptions(this.eventTemplates);
     }
 
     get selectedTemplatePreset() {
-        return buildTemplatePreset(this.selectedTemplateKey);
+        return buildTemplatePreset(this.selectedTemplateKey, this.eventTemplates);
     }
 
     get templateDescription() {
         return this.selectedTemplatePreset.description;
+    }
+
+    get selectedTemplateName() {
+        return this.selectedTemplatePreset.name || null;
     }
 
     get assignedUserOptions() {
@@ -462,24 +475,41 @@ export default class CalendarCreateModal extends LightningElement {
         this.refreshPlanningContext();
     }
 
+    async loadEventTemplates() {
+        try {
+            const rows = await getActiveEventTemplates();
+            this.eventTemplates = normalizeEventTemplates(rows);
+
+            if (
+                this.selectedTemplateKey !== DEFAULT_TEMPLATE_KEY &&
+                !this.eventTemplates.some((row) => row.id === this.selectedTemplateKey)
+            ) {
+                this.selectedTemplateKey = DEFAULT_TEMPLATE_KEY;
+            }
+        } catch (error) {
+            this.eventTemplates = [];
+        }
+    }
+
     handleTemplateChange(event) {
         this.selectedTemplateKey = event.detail?.value || DEFAULT_TEMPLATE_KEY;
         const preset = this.selectedTemplatePreset;
 
-        if (preset.appointmentType) {
-            this.appointmentTypeValue = preset.appointmentType;
+        if (preset.name) {
+            this.lastSuggestedName = preset.name;
+            this.nameValue = preset.name;
         }
 
-        if (preset.reminderOffset) {
-            this.reminderOffsetValue = preset.reminderOffset;
+        if (preset.calendarId) {
+            this.calendarValue = preset.calendarId;
         }
 
-        if (typeof preset.followUpFrequency === 'string') {
-            this.followUpFrequency = preset.followUpFrequency;
+        if (preset.defaultStatus) {
+            this.statusValue = preset.defaultStatus;
         }
 
-        if (typeof preset.followUpCount === 'number') {
-            this.followUpCount = preset.followUpCount;
+        if (typeof preset.notes === 'string') {
+            this.notesValue = preset.notes;
         }
 
         if (typeof preset.durationMinutes === 'number') {
@@ -653,7 +683,7 @@ export default class CalendarCreateModal extends LightningElement {
                 customerContactId: hasCustomerInputs ? this.customerContactId : null,
                 customerAccountId: hasCustomerInputs ? this.customerAccountId : null,
                 appointmentType: this.appointmentTypeValue,
-                templateKey: this.selectedTemplateKey
+                templateName: this.selectedTemplateName
             });
 
             if (requestSequence !== this.planningContextSequence) {

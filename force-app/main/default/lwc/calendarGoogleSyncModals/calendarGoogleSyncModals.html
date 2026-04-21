@@ -1,0 +1,214 @@
+<template>
+    <template if:true={showConnectModal}>
+        <div>
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-connect-heading" class="slds-modal slds-fade-in-open google-connect-modal">
+                <div class="slds-modal__container">
+                    <header class="slds-modal__header">
+                        <h2 id="google-connect-heading" class="slds-text-heading_medium">Connect Google Calendar</h2>
+                    </header>
+
+                    <div class="slds-modal__content slds-p-around_medium">
+                        <div class="google-connect-modal__copy">
+                            Start the Google OAuth flow in a new browser tab, complete sign-in, then come back here and confirm the connection.
+                        </div>
+
+                        <div class="google-connect-modal__status">{googleSyncViewState.importStatusMessage}</div>
+                    </div>
+
+                    <footer class="slds-modal__footer google-connect-modal__footer">
+                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleConnectModalClose}>
+                            Cancel
+                        </button>
+                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleConnectModalLaunch}>
+                            Open Google Sign-In
+                        </button>
+                        <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleConnectModalRefresh}>
+                            I Finished Connecting
+                        </button>
+                    </footer>
+                </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+        </div>
+    </template>
+
+    <template if:true={showImportModal}>
+        <div>
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-import-heading" class="slds-modal slds-fade-in-open google-connect-modal">
+                <div class="slds-modal__container">
+                    <header class="slds-modal__header">
+                        <h2 id="google-import-heading" class="slds-text-heading_medium">{googleSyncViewState.importModalTitle}</h2>
+                    </header>
+
+                    <div class="slds-modal__content slds-p-around_medium">
+                        <div class="slds-form-element google-sync-modal__field">
+                            <label class="slds-form-element__label" for="google-import-calendar-select">Salesforce Calendar</label>
+                            <div class="slds-form-element__control">
+                                <select
+                                    id="google-import-calendar-select"
+                                    class="slds-select google-sync-modal__listbox"
+                                    size="10"
+                                    onchange={handleGoogleImportModalCalendarChange}
+                                >
+                                    <template for:each={googleSyncViewState.importModalSelectOptions} for:item="option">
+                                        <option key={option.value} value={option.value} selected={option.selected}>{option.label}</option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="google-connect-modal__status">{googleSyncViewState.importModalCalendarHelpText}</div>
+
+                        <template if:true={googleSyncViewState.isImportModalConfigured}>
+                            <template if:false={googleSyncViewState.isImportModalConnected}>
+                                <div class="google-connect-modal__copy">
+                                    Start the Google OAuth flow in a new browser tab. After Google trusts the connection, return here and confirm the connection to load your Google calendars.
+                                </div>
+
+                                <div class="google-connect-modal__status">{googleSyncViewState.importStatusMessage}</div>
+                            </template>
+
+                            <template if:true={googleSyncViewState.isImportModalConnected}>
+                                <lightning-checkbox-group
+                                    class="google-sync-modal__field"
+                                    label="Google Calendars"
+                                    options={googleSyncViewState.importCalendarOptions}
+                                    value={googleSyncViewState.selectedImportCalendarIds}
+                                    disabled={googleSyncViewState.importCalendarsDisabled}
+                                    onchange={handleGoogleImportCalendarSelectionChange}
+                                >
+                                </lightning-checkbox-group>
+
+                                <div class="google-connect-modal__status">{googleSyncViewState.importHelpText}</div>
+                            </template>
+                        </template>
+                    </div>
+
+                    <footer class="slds-modal__footer google-connect-modal__footer">
+                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleImportModalClose}>
+                            Cancel
+                        </button>
+
+                        <template if:false={googleSyncViewState.isImportModalUsingCurrentCalendar}>
+                            <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleImportModalContinue}>
+                                Continue
+                            </button>
+                        </template>
+
+                        <template if:true={googleSyncViewState.isImportModalUsingCurrentCalendar}>
+                            <template if:true={googleSyncViewState.isImportModalConfigured}>
+                                <template if:false={googleSyncViewState.isImportModalConnected}>
+                                    <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleImportModalLaunch}>
+                                        Open Google Sign-In
+                                    </button>
+                                    <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleImportModalRefresh}>
+                                        I Finished Connecting
+                                    </button>
+                                </template>
+
+                                <template if:true={googleSyncViewState.isImportModalConnected}>
+                                    <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleImportModalContinue}>
+                                        Continue
+                                    </button>
+                                </template>
+                            </template>
+                        </template>
+                    </footer>
+                </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+        </div>
+    </template>
+
+    <template if:true={showExportModal}>
+        <div>
+            <section role="dialog" tabindex="-1" aria-modal="true" aria-labelledby="google-export-heading" class="slds-modal slds-fade-in-open google-connect-modal">
+                <div class="slds-modal__container">
+                    <header class="slds-modal__header">
+                        <h2 id="google-export-heading" class="slds-text-heading_medium">{googleSyncViewState.exportModalTitle}</h2>
+                    </header>
+
+                    <div class="slds-modal__content slds-p-around_medium">
+                        <div class="slds-form-element google-sync-modal__field">
+                            <label class="slds-form-element__label" for="google-export-team-calendar-select">Salesforce Calendar</label>
+                            <div class="slds-form-element__control">
+                                <select
+                                    id="google-export-team-calendar-select"
+                                    class="slds-select google-sync-modal__listbox"
+                                    size="10"
+                                    onchange={handleGoogleExportModalCalendarChange}
+                                >
+                                    <template for:each={googleSyncViewState.exportModalSelectOptions} for:item="option">
+                                        <option key={option.value} value={option.value} selected={option.selected}>{option.label}</option>
+                                    </template>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="google-connect-modal__status">{googleSyncViewState.exportHelpText}</div>
+
+                        <template if:true={googleSyncViewState.isExportModalUsingCurrentCalendar}>
+                            <template if:false={googleSyncViewState.isExportModalConnected}>
+                                <div class="google-connect-modal__copy">
+                                    Start the Google OAuth flow in a new browser tab. After Google trusts the connection, return here and confirm the connection to load your writable Google calendars.
+                                </div>
+
+                                <div class="google-connect-modal__status">{syncMessage}</div>
+                            </template>
+
+                            <template if:true={googleSyncViewState.isExportModalConnected}>
+                                <div class="slds-form-element google-sync-modal__field">
+                                    <label class="slds-form-element__label" for="google-export-calendar-select">Google Calendar Destination</label>
+                                    <div class="slds-form-element__control">
+                                        <div class="slds-select_container">
+                                            <select
+                                                id="google-export-calendar-select"
+                                                class="slds-select"
+                                                disabled={googleSyncViewState.calendarSelectionDisabled}
+                                                onchange={handleGoogleExportCalendarSelectionChange}
+                                            >
+                                                <template for:each={googleSyncViewState.exportSelectOptions} for:item="option">
+                                                    <option key={option.value} value={option.value} selected={option.selected}>{option.label}</option>
+                                                </template>
+                                            </select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </template>
+                    </div>
+
+                    <footer class="slds-modal__footer google-connect-modal__footer">
+                        <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleExportModalClose}>
+                            Cancel
+                        </button>
+
+                        <template if:false={googleSyncViewState.isExportModalUsingCurrentCalendar}>
+                            <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleExportModalContinue}>
+                                Continue
+                            </button>
+                        </template>
+
+                        <template if:true={googleSyncViewState.isExportModalUsingCurrentCalendar}>
+                            <template if:false={googleSyncViewState.isExportModalConnected}>
+                                <button class="slds-button slds-button_neutral" type="button" onclick={handleGoogleExportModalLaunch}>
+                                    Open Google Sign-In
+                                </button>
+                                <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleExportModalRefresh}>
+                                    I Finished Connecting
+                                </button>
+                            </template>
+
+                            <template if:true={googleSyncViewState.isExportModalConnected}>
+                                <button class="slds-button slds-button_brand" type="button" onclick={handleGoogleExportModalContinue}>
+                                    Continue
+                                </button>
+                            </template>
+                        </template>
+                    </footer>
+                </div>
+            </section>
+            <div class="slds-backdrop slds-backdrop_open"></div>
+        </div>
+    </template>
+</template>

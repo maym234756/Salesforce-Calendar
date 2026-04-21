@@ -9,18 +9,27 @@
 private class TeamCalendarSecurityControllerTest {
     @IsTest
     static void canCurrentUserManageSecurity_returnsBoolean() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
+        Boolean result;
+
         Test.startTest();
-        Boolean result = TeamCalendarSecurityController.canCurrentUserManageSecurity();
+        System.runAs(securityAdmin) {
+            result = TeamCalendarSecurityController.canCurrentUserManageSecurity();
+        }
         Test.stopTest();
 
-        System.assertNotEquals(null, result);
+        System.assertEquals(true, result);
     }
 
     @IsTest
     static void getSecurityUsers_returnsRows() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
+        List<TeamCalendarSecurityController.SecurityUserDTO> rows;
+
         Test.startTest();
-        List<TeamCalendarSecurityController.SecurityUserDTO> rows =
-            TeamCalendarSecurityController.getSecurityUsers();
+        System.runAs(securityAdmin) {
+            rows = TeamCalendarSecurityController.getSecurityUsers();
+        }
         Test.stopTest();
 
         System.assert(rows.size() > 0, 'Expected at least one active user.');
@@ -28,6 +37,7 @@ private class TeamCalendarSecurityControllerTest {
 
     @IsTest
     static void saveAndLoadUserCalendarAccess_roundTripsRules() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         List<TeamCalendarSecurityController.SecurityRuleInput> payload =
@@ -48,14 +58,17 @@ private class TeamCalendarSecurityControllerTest {
         row.notes = 'Unit test row';
         payload.add(row);
 
-        Test.startTest();
-        TeamCalendarSecurityController.saveUserCalendarAccess(
-            targetUserId,
-            JSON.serialize(payload)
-        );
+        TeamCalendarSecurityController.SecurityUserAccessDTO loaded;
 
-        TeamCalendarSecurityController.SecurityUserAccessDTO loaded =
-            TeamCalendarSecurityController.getUserCalendarAccess(targetUserId);
+        Test.startTest();
+        System.runAs(securityAdmin) {
+            TeamCalendarSecurityController.saveUserCalendarAccess(
+                targetUserId,
+                JSON.serialize(payload)
+            );
+
+            loaded = TeamCalendarSecurityController.getUserCalendarAccess(targetUserId);
+        }
         Test.stopTest();
 
         System.assertNotEquals(null, loaded);
@@ -69,6 +82,7 @@ private class TeamCalendarSecurityControllerTest {
 
     @IsTest
     static void saveUserCalendarAccess_emptyPayload_deactivatesExistingRules() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         insert new Calendar_Access_Rule__c(
@@ -80,14 +94,17 @@ private class TeamCalendarSecurityControllerTest {
             Is_Active__c = true
         );
 
-        Test.startTest();
-        TeamCalendarSecurityController.saveUserCalendarAccess(
-            targetUserId,
-            '[]'
-        );
+        TeamCalendarSecurityController.SecurityUserAccessDTO loaded;
 
-        TeamCalendarSecurityController.SecurityUserAccessDTO loaded =
-            TeamCalendarSecurityController.getUserCalendarAccess(targetUserId);
+        Test.startTest();
+        System.runAs(securityAdmin) {
+            TeamCalendarSecurityController.saveUserCalendarAccess(
+                targetUserId,
+                '[]'
+            );
+
+            loaded = TeamCalendarSecurityController.getUserCalendarAccess(targetUserId);
+        }
         Test.stopTest();
 
         System.assertEquals(0, loaded.rules.size(), 'Expected no active rules after replace.');
@@ -95,9 +112,13 @@ private class TeamCalendarSecurityControllerTest {
 
     @IsTest
     static void getCalendarViewsForSecurity_runs() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
+        List<TeamCalendarSecurityController.SecurityCalendarViewDTO> rows;
+
         Test.startTest();
-        List<TeamCalendarSecurityController.SecurityCalendarViewDTO> rows =
-            TeamCalendarSecurityController.getCalendarViewsForSecurity();
+        System.runAs(securityAdmin) {
+            rows = TeamCalendarSecurityController.getCalendarViewsForSecurity();
+        }
         Test.stopTest();
 
         System.assertNotEquals(null, rows);
@@ -105,6 +126,7 @@ private class TeamCalendarSecurityControllerTest {
 
     @IsTest
     static void saveAndLoadLayoutPreferences_roundTripsValues() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
@@ -129,14 +151,17 @@ private class TeamCalendarSecurityControllerTest {
         };
         inputRow.isActive = true;
 
-        Test.startTest();
-        TeamCalendarSecurityController.saveUserLayoutPreference(
-            targetUserId,
-            JSON.serialize(inputRow)
-        );
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
 
-        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded =
-            TeamCalendarSecurityController.getUserLayoutPreference(targetUserId);
+        Test.startTest();
+        System.runAs(securityAdmin) {
+            TeamCalendarSecurityController.saveUserLayoutPreference(
+                targetUserId,
+                JSON.serialize(inputRow)
+            );
+
+            loaded = TeamCalendarSecurityController.getUserLayoutPreference(targetUserId);
+        }
         Test.stopTest();
 
         System.assertEquals('week', loaded.defaultView);
@@ -160,6 +185,7 @@ private class TeamCalendarSecurityControllerTest {
 
     @IsTest
     static void setShowSecurityButtonForAllUsers_updatesUserPreferences() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
@@ -167,15 +193,21 @@ private class TeamCalendarSecurityControllerTest {
         inputRow.defaultView = 'month';
         inputRow.showSecurityButton = true;
 
-        TeamCalendarSecurityController.saveUserLayoutPreference(
-            targetUserId,
-            JSON.serialize(inputRow)
-        );
+        System.runAs(securityAdmin) {
+            TeamCalendarSecurityController.saveUserLayoutPreference(
+                targetUserId,
+                JSON.serialize(inputRow)
+            );
+        }
+
+        Integer updatedCount;
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
 
         Test.startTest();
-        Integer updatedCount = TeamCalendarSecurityController.setShowSecurityButtonForAllUsers(false);
-        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded =
-            TeamCalendarSecurityController.getUserLayoutPreference(targetUserId);
+        System.runAs(securityAdmin) {
+            updatedCount = TeamCalendarSecurityController.setShowSecurityButtonForAllUsers(false);
+            loaded = TeamCalendarSecurityController.getUserLayoutPreference(targetUserId);
+        }
         Test.stopTest();
 
         System.assert(updatedCount > 0, 'Expected at least one user to be updated.');
@@ -184,6 +216,7 @@ private class TeamCalendarSecurityControllerTest {
 
     @IsTest
     static void setLayoutFieldForAllUsers_updatesRequestedField() {
+        User securityAdmin = TeamCalendarTestSecurityHelper.getCurrentUserWithRuntimeAccess();
         Id targetUserId = UserInfo.getUserId();
 
         TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
@@ -191,21 +224,46 @@ private class TeamCalendarSecurityControllerTest {
         inputRow.defaultView = 'month';
         inputRow.showRefreshButton = true;
 
-        TeamCalendarSecurityController.saveUserLayoutPreference(
-            targetUserId,
-            JSON.serialize(inputRow)
-        );
+        System.runAs(securityAdmin) {
+            TeamCalendarSecurityController.saveUserLayoutPreference(
+                targetUserId,
+                JSON.serialize(inputRow)
+            );
+        }
+
+        Integer updatedCount;
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
 
         Test.startTest();
-        Integer updatedCount = TeamCalendarSecurityController.setLayoutFieldForAllUsers(
-            'showRefreshButton',
-            false
-        );
-        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded =
-            TeamCalendarSecurityController.getUserLayoutPreference(targetUserId);
+        System.runAs(securityAdmin) {
+            updatedCount = TeamCalendarSecurityController.setLayoutFieldForAllUsers(
+                'showRefreshButton',
+                false
+            );
+            loaded = TeamCalendarSecurityController.getUserLayoutPreference(targetUserId);
+        }
         Test.stopTest();
 
         System.assert(updatedCount > 0, 'Expected at least one user to be updated.');
         System.assertEquals(false, loaded.showRefreshButton);
+    }
+
+    @IsTest
+    static void saveCurrentUserLayoutPreference_savesColorOverridesWithoutSecurityAdmin() {
+        TeamCalendarUserPreferenceService.UserPreferenceInput inputRow =
+            new TeamCalendarUserPreferenceService.UserPreferenceInput();
+        inputRow.defaultView = 'month';
+        inputRow.calendarColorOverrides = new Map<String, String>{
+            'a0B000000000001AAA' => '#ff6600'
+        };
+
+        TeamCalendarUserPreferenceService.UserPreferenceDTO loaded;
+
+        Test.startTest();
+        TeamCalendarSecurityController.saveCurrentUserLayoutPreference(JSON.serialize(inputRow));
+        loaded = TeamCalendarSecurityController.getCurrentUserLayoutPreference();
+        Test.stopTest();
+
+        System.assertEquals('#ff6600', loaded.calendarColorOverrides.get('a0B000000000001AAA'));
     }
 }

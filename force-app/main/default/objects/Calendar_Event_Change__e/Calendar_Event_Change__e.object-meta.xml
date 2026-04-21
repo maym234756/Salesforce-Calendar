@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomObject xmlns="http://soap.sforce.com/2006/04/metadata">
+    <deploymentStatus>Deployed</deploymentStatus>
+    <description>Publishes create, update, delete, and restore notifications for board-visible calendar events.</description>
+    <eventType>HighVolume</eventType>
+    <label>Calendar Event Change</label>
+    <pluralLabel>Calendar Event Changes</pluralLabel>
+    <publishBehavior>PublishAfterCommit</publishBehavior>
+</CustomObject>
