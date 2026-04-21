@@ -48,6 +48,7 @@ $RECYCLE.BIN/
 /deploy-*-report.json
 /deploy-report-*.json
 /deploy-connection-alignment.json
+/tmp_*.json
 
 # Live recurring Google smoke artifacts
 artifacts/live-smoke/
