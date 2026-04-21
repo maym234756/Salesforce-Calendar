@@ -28,6 +28,7 @@ public with sharing class TeamCalendarUndoService {
         enforceCalendarEventRestoreAccess(runningUserId, isSecurityAdmin, existingRow.OwnerId);
         enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
         undelete existingRow;
+        resetRestoredEventForGoogleSync(existingRow.Id);
         return existingRow.Id;
     }
 
@@ -122,7 +123,13 @@ public with sharing class TeamCalendarUndoService {
 
     private static void enforceCrudAccess(Schema.SObjectType sObjectType, String operation) {
         Schema.DescribeSObjectResult describeResult = sObjectType.getDescribe();
-        Boolean isAllowed = operation == 'delete' && describeResult.isDeletable();
+        Boolean isAllowed = false;
+
+        if (operation == 'delete') {
+            isAllowed = describeResult.isDeletable();
+        } else if (operation == 'update') {
+            isAllowed = describeResult.isUpdateable();
+        }
 
         if (isAllowed != true) {
             throw new AuraHandledException('You do not have permission to modify this record.');
@@ -139,5 +146,54 @@ public with sharing class TeamCalendarUndoService {
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    private static void resetRestoredEventForGoogleSync(Id restoredEventId) {
+        if (restoredEventId == null) {
+            return;
+        }
+
+        List<Calendar_Event__c> restoredRows = [
+            SELECT Id,
+                   External_Event_Id__c,
+                   Sync_Status__c,
+                   Sync_Error__c,
+                   Last_Synced_At__c,
+                   Calendar__r.Google_Sync_Enabled__c
+            FROM Calendar_Event__c
+            WHERE Id = :restoredEventId
+            LIMIT 1
+        ];
+        if (restoredRows.isEmpty() || restoredRows[0].Calendar__r.Google_Sync_Enabled__c != true) {
+            return;
+        }
+
+        Calendar_Event__c restoredRow = restoredRows[0];
+        Calendar_Event__c resetRow = new Calendar_Event__c(Id = restoredEventId);
+        Boolean needsReset = false;
+
+        if (!String.isBlank(restoredRow.External_Event_Id__c)) {
+            resetRow.External_Event_Id__c = null;
+            needsReset = true;
+        }
+        if (String.isNotBlank(restoredRow.Sync_Status__c)) {
+            resetRow.Sync_Status__c = null;
+            needsReset = true;
+        }
+        if (String.isNotBlank(restoredRow.Sync_Error__c)) {
+            resetRow.Sync_Error__c = null;
+            needsReset = true;
+        }
+        if (restoredRow.Last_Synced_At__c != null) {
+            resetRow.Last_Synced_At__c = null;
+            needsReset = true;
+        }
+
+        if (needsReset) {
+            enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
+            update resetRow;
+        }
+
+        GoogleCalendarSyncService.queueMutationSync(restoredEventId);
     }
 }

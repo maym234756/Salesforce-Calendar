@@ -84,6 +84,50 @@ private class GoogleCalendarSyncServiceTest {
     }
 
     @IsTest
+    static void pushEvent_recurringTemplateIncludesRecurrencePayload() {
+        Team_Calendar__c calendarRow = createCalendar('Recurring Sync Calendar', true, 'recurring-sync@example.com');
+
+        Calendar_Event__c evt = createEvent(
+            'Recurring Template',
+            calendarRow.Id,
+            dt(2026, 4, 27, 9, 0),
+            dt(2026, 4, 27, 10, 0),
+            false,
+            'Confirmed',
+            null,
+            'Recurring notes'
+        );
+        evt.Recurrence_Rule__c = 'FREQ=WEEKLY;COUNT=6';
+        insert evt;
+
+        Test.setMock(
+            HttpCalloutMock.class,
+            new GoogleCalendarMock(
+                200,
+                'recurring-series-id',
+                false,
+                'POST',
+                'RRULE:FREQ=WEEKLY;COUNT=6'
+            )
+        );
+
+        Test.startTest();
+        GoogleCalendarSyncService.SyncResult result = GoogleCalendarSyncService.pushEvent(evt.Id);
+        Test.stopTest();
+
+        System.assertEquals(true, result.success);
+        System.assertEquals('recurring-series-id', result.externalEventId);
+
+        Calendar_Event__c refreshed = [
+            SELECT External_Event_Id__c, Sync_Status__c
+            FROM Calendar_Event__c
+            WHERE Id = :evt.Id
+        ];
+        System.assertEquals('recurring-series-id', refreshed.External_Event_Id__c);
+        System.assertEquals('Synced', refreshed.Sync_Status__c);
+    }
+
+    @IsTest
     static void pushEvent_googleImportedEventSyncsBackToItsSourceCalendar() {
         Team_Calendar__c calendarRow = createCalendar('Imported Source Calendar', true, 'default-destination@example.com');
 
@@ -108,6 +152,50 @@ private class GoogleCalendarSyncServiceTest {
         Test.stopTest();
 
         System.assertEquals(true, result.success);
+
+        Calendar_Event__c refreshed = [
+            SELECT Sync_Source__c, Google_Source_Calendar_Id__c, External_Event_Id__c
+            FROM Calendar_Event__c
+            WHERE Id = :evt.Id
+        ];
+        System.assertEquals('Google', refreshed.Sync_Source__c);
+        System.assertEquals('source-calendar@example.com', refreshed.Google_Source_Calendar_Id__c);
+        System.assertEquals('google-imported-id', refreshed.External_Event_Id__c);
+    }
+
+    @IsTest
+    static void pushEvent_cancelledEventRemovesGoogleEventAndClearsExternalId() {
+        Team_Calendar__c calendarRow = createCalendar('Cancelled Calendar', true, 'cancel@example.com');
+
+        Calendar_Event__c evt = createEvent(
+            'Cancelled Event',
+            calendarRow.Id,
+            dt(2026, 4, 21, 9, 0),
+            dt(2026, 4, 21, 10, 0),
+            false,
+            'Cancelled',
+            'cancel-google-id',
+            'Cancel me'
+        );
+        insert evt;
+
+        Test.setMock(HttpCalloutMock.class, new GoogleCalendarDeleteMock('cancel-google-id'));
+
+        Test.startTest();
+        GoogleCalendarSyncService.SyncResult result = GoogleCalendarSyncService.pushEvent(evt.Id);
+        Test.stopTest();
+
+        System.assertEquals(true, result.success);
+        System.assertEquals(null, result.externalEventId);
+
+        Calendar_Event__c refreshed = [
+            SELECT External_Event_Id__c, Sync_Status__c, Sync_Error__c
+            FROM Calendar_Event__c
+            WHERE Id = :evt.Id
+        ];
+        System.assertEquals(null, refreshed.External_Event_Id__c);
+        System.assertEquals('Synced', refreshed.Sync_Status__c);
+        System.assertEquals(null, refreshed.Sync_Error__c);
     }
 
     @IsTest
@@ -153,6 +241,124 @@ private class GoogleCalendarSyncServiceTest {
             GoogleCalendarSyncService.pushEvent(blankIdEvent.Id);
         System.assertEquals(false, blankIdResult.success);
         System.assert(blankIdResult.message.contains('configured'));
+    }
+
+    @IsTest
+    static void exportService_validatesAndHandlesDeleteEdgeCases() {
+        System.assertEquals(
+            'Event not found.',
+            GoogleCalendarExportService.validateCalendarSync(null, 'target@example.com')
+        );
+
+        Calendar_Event__c missingCalendarEvent = new Calendar_Event__c(Name = 'Missing Calendar');
+        System.assertEquals(
+            'Event is not linked to a Team Calendar.',
+            GoogleCalendarExportService.validateCalendarSync(missingCalendarEvent, 'target@example.com')
+        );
+
+        Team_Calendar__c disabledCalendar = createCalendar('Disabled Export Calendar', false, 'disabled-export@example.com');
+        Calendar_Event__c disabledEvent = createEvent(
+            'Disabled Export Event',
+            disabledCalendar.Id,
+            dt(2026, 4, 24, 9, 0),
+            dt(2026, 4, 24, 10, 0),
+            false,
+            'Confirmed',
+            null,
+            null
+        );
+        insert disabledEvent;
+
+        Calendar_Event__c loadedDisabledEvent = [
+            SELECT Id, Calendar__c, Calendar__r.Google_Sync_Enabled__c
+            FROM Calendar_Event__c
+            WHERE Id = :disabledEvent.Id
+        ];
+        System.assertEquals(
+            'Google sync is not enabled for this Team Calendar.',
+            GoogleCalendarExportService.validateCalendarSync(loadedDisabledEvent, 'target@example.com')
+        );
+
+        Team_Calendar__c enabledCalendar = createCalendar('Enabled Export Calendar', true, 'enabled-export@example.com');
+        Calendar_Event__c enabledEvent = createEvent(
+            'Enabled Export Event',
+            enabledCalendar.Id,
+            dt(2026, 4, 24, 11, 0),
+            dt(2026, 4, 24, 12, 0),
+            false,
+            'Confirmed',
+            null,
+            null
+        );
+        insert enabledEvent;
+
+        Calendar_Event__c loadedEnabledEvent = [
+            SELECT Id, Calendar__c, Calendar__r.Google_Sync_Enabled__c
+            FROM Calendar_Event__c
+            WHERE Id = :enabledEvent.Id
+        ];
+        System.assertEquals(
+            'No Google calendar is configured for this event.',
+            GoogleCalendarExportService.validateCalendarSync(loadedEnabledEvent, null)
+        );
+
+        GoogleCalendarExportService.ExportOutcome blankExternalOutcome =
+            GoogleCalendarExportService.deleteExternalEvent(
+                'target@example.com',
+                null,
+                'Nothing to delete.'
+            );
+        System.assertEquals(true, blankExternalOutcome.success);
+        System.assertEquals(null, blankExternalOutcome.externalEventId);
+
+        GoogleCalendarExportService.ExportOutcome blankCalendarOutcome =
+            GoogleCalendarExportService.deleteExternalEvent(
+                null,
+                'google-id',
+                'Should fail.'
+            );
+        System.assertEquals(false, blankCalendarOutcome.success);
+        System.assert(blankCalendarOutcome.message.contains('configured'));
+
+        Test.setMock(HttpCalloutMock.class, new GoogleCalendarDeleteNotFoundMock());
+        Test.startTest();
+        GoogleCalendarExportService.ExportOutcome notFoundOutcome =
+            GoogleCalendarExportService.deleteExternalEvent(
+                'target@example.com',
+                'already-missing',
+                'Already absent is okay.'
+            );
+        Test.stopTest();
+
+        System.assertEquals(true, notFoundOutcome.success);
+        System.assertEquals(null, notFoundOutcome.externalEventId);
+        System.assertEquals('Already absent is okay.', notFoundOutcome.message);
+    }
+
+    @IsTest
+    static void exportService_returnsValidationErrorsForIncompletePayloads() {
+        Calendar_Event__c allDayWithoutStart = new Calendar_Event__c(
+            Name = 'Broken All Day',
+            All_Day__c = true,
+            Status__c = 'Confirmed'
+        );
+
+        GoogleCalendarExportService.ExportOutcome allDayOutcome =
+            GoogleCalendarExportService.syncSingleEvent(allDayWithoutStart, 'target@example.com');
+        System.assertEquals(false, allDayOutcome.success);
+        System.assert(allDayOutcome.message.contains('Start is required'));
+
+        Calendar_Event__c timedWithoutEnd = new Calendar_Event__c(
+            Name = 'Broken Timed',
+            All_Day__c = false,
+            Status__c = 'Confirmed',
+            Start__c = dt(2026, 4, 25, 9, 0)
+        );
+
+        GoogleCalendarExportService.ExportOutcome timedOutcome =
+            GoogleCalendarExportService.syncSingleEvent(timedWithoutEnd, 'target@example.com');
+        System.assertEquals(false, timedOutcome.success);
+        System.assert(timedOutcome.message.contains('Start and End are required'));
     }
 
     @IsTest
@@ -242,6 +448,75 @@ private class GoogleCalendarSyncServiceTest {
             System.assertEquals('queued-google-id', row.External_Event_Id__c);
             System.assertEquals(null, row.Sync_Error__c);
         }
+    }
+
+    @IsTest
+    static void pushEventsForCalendar_skipsUnmappedRecurringExceptionsAndSyncsSeriesTemplate() {
+        Team_Calendar__c calendarRow = createCalendar(
+            'Recurring Queue Calendar',
+            true,
+            'recurring-queue@example.com'
+        );
+
+        Calendar_Event__c templateRow = createEvent(
+            'Recurring Queue Template',
+            calendarRow.Id,
+            dt(2026, 4, 27, 9, 0),
+            dt(2026, 4, 27, 10, 0),
+            false,
+            'Confirmed',
+            null,
+            'Recurring queue notes'
+        );
+        templateRow.Recurrence_Rule__c = 'FREQ=DAILY;COUNT=5';
+        insert templateRow;
+
+        Calendar_Event__c exceptionRow = createEvent(
+            'Recurring Queue Exception',
+            calendarRow.Id,
+            dt(2026, 4, 29, 11, 0),
+            dt(2026, 4, 29, 12, 0),
+            false,
+            'Confirmed',
+            null,
+            'Exception should stay local'
+        );
+        exceptionRow.Is_Recurrence_Exception__c = true;
+        exceptionRow.Recurrence_Parent__c = templateRow.Id;
+        exceptionRow.Occurrence_Date__c = '2026-04-29';
+        insert exceptionRow;
+
+        Test.setMock(
+            HttpCalloutMock.class,
+            new GoogleCalendarMock(
+                200,
+                'queued-recurring-series-id',
+                false,
+                'POST',
+                'RRULE:FREQ=DAILY;COUNT=5'
+            )
+        );
+
+        Test.startTest();
+        GoogleCalendarSyncService.SyncResult result =
+            GoogleCalendarSyncService.pushEventsForCalendar(calendarRow.Id, null, null);
+        Test.stopTest();
+
+        System.assertEquals(true, result.success);
+        System.assertEquals(1, result.processedCount);
+
+        Map<Id, Calendar_Event__c> refreshedById = new Map<Id, Calendar_Event__c>([
+            SELECT External_Event_Id__c, Sync_Status__c
+            FROM Calendar_Event__c
+            WHERE Id IN :new List<Id>{ templateRow.Id, exceptionRow.Id }
+        ]);
+        System.assertEquals(
+            'queued-recurring-series-id',
+            refreshedById.get(templateRow.Id).External_Event_Id__c
+        );
+        System.assertEquals('Synced', refreshedById.get(templateRow.Id).Sync_Status__c);
+        System.assertEquals(null, refreshedById.get(exceptionRow.Id).External_Event_Id__c);
+        System.assertEquals(null, refreshedById.get(exceptionRow.Id).Sync_Status__c);
     }
 
     @IsTest
@@ -500,12 +775,24 @@ private class GoogleCalendarSyncServiceTest {
         private String eventId;
         private Boolean expectAllDay;
         private String expectedMethod;
+        private String expectedRecurrence;
 
         GoogleCalendarMock(Integer statusCode, String eventId, Boolean expectAllDay, String expectedMethod) {
+            this(statusCode, eventId, expectAllDay, expectedMethod, null);
+        }
+
+        GoogleCalendarMock(
+            Integer statusCode,
+            String eventId,
+            Boolean expectAllDay,
+            String expectedMethod,
+            String expectedRecurrence
+        ) {
             this.statusCode = statusCode;
             this.eventId = eventId;
             this.expectAllDay = expectAllDay;
             this.expectedMethod = expectedMethod;
+            this.expectedRecurrence = expectedRecurrence;
         }
 
         public HttpResponse respond(HttpRequest req) {
@@ -529,6 +816,13 @@ private class GoogleCalendarSyncServiceTest {
                 System.assertEquals(true, endBlock.containsKey('dateTime'));
                 System.assertEquals('UTC', (String) startBlock.get('timeZone'));
                 System.assertEquals('UTC', (String) endBlock.get('timeZone'));
+            }
+
+            if (expectedRecurrence != null) {
+                System.assertEquals(true, payload.containsKey('recurrence'));
+                List<Object> recurrenceValues = (List<Object>) payload.get('recurrence');
+                System.assertEquals(1, recurrenceValues.size());
+                System.assertEquals(expectedRecurrence, (String) recurrenceValues[0]);
             }
 
             HttpResponse response = new HttpResponse();
@@ -560,6 +854,37 @@ private class GoogleCalendarSyncServiceTest {
             response.setStatusCode(200);
             response.setHeader('Content-Type', 'application/json');
             response.setBody('{"id":"google-imported-id"}');
+            return response;
+        }
+    }
+
+    private class GoogleCalendarDeleteMock implements HttpCalloutMock {
+        private String expectedEventId;
+
+        GoogleCalendarDeleteMock(String expectedEventId) {
+            this.expectedEventId = expectedEventId;
+        }
+
+        public HttpResponse respond(HttpRequest req) {
+            System.assertEquals('DELETE', req.getMethod());
+            System.assert(req.getEndpoint().contains('/events/' + expectedEventId));
+
+            HttpResponse response = new HttpResponse();
+            response.setStatusCode(204);
+            response.setHeader('Content-Type', 'application/json');
+            response.setBody('');
+            return response;
+        }
+    }
+
+    private class GoogleCalendarDeleteNotFoundMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            System.assertEquals('DELETE', req.getMethod());
+
+            HttpResponse response = new HttpResponse();
+            response.setStatusCode(404);
+            response.setHeader('Content-Type', 'application/json');
+            response.setBody('{"error":{"message":"Not Found"}}');
             return response;
         }
     }

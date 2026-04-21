@@ -7,7 +7,6 @@
 **/
 public with sharing class GoogleCalendarSyncService {
     private static final Integer BULK_CHUNK_SIZE = 40;
-    private static final Integer IMPORT_PAGE_SIZE = 250;
     private static final Long SCHEDULED_SYNC_GRACE_MILLIS = 2000;
 
     public class SyncResult {
@@ -22,12 +21,6 @@ public with sharing class GoogleCalendarSyncService {
         @AuraEnabled public Datetime lastSyncedAt;
         @AuraEnabled public String status;
         @AuraEnabled public String lastError;
-    }
-
-    private class EventSyncOutcome {
-        public Boolean success;
-        public String externalEventId;
-        public String message;
     }
 
     @AuraEnabled
@@ -74,6 +67,8 @@ public with sharing class GoogleCalendarSyncService {
                    All_Day__c,
                    Notes__c,
                    Status__c,
+                   Is_Recurrence_Exception__c,
+                   Recurrence_Rule__c,
                    External_Event_Id__c,
                    Sync_Status__c,
                    Sync_Error__c,
@@ -95,18 +90,22 @@ public with sharing class GoogleCalendarSyncService {
         }
         Calendar_Event__c evt = evtRows[0];
 
-        String targetGoogleCalendarId = resolveTargetGoogleCalendarId(
+        String targetGoogleCalendarId = GoogleCalendarExportService.resolveTargetGoogleCalendarId(
             evt,
             evt.Calendar__r.Google_Calendar_Id__c
         );
-        String validationMessage = validateCalendarSync(evt, targetGoogleCalendarId);
+        String validationMessage = GoogleCalendarExportService.validateCalendarSync(
+            evt,
+            targetGoogleCalendarId
+        );
         if (validationMessage != null) {
             result.success = false;
             result.message = validationMessage;
             return result;
         }
 
-        EventSyncOutcome outcome = syncSingleEvent(evt, targetGoogleCalendarId);
+        GoogleCalendarExportService.ExportOutcome outcome =
+            GoogleCalendarExportService.syncSingleEvent(evt, targetGoogleCalendarId);
         applyOutcome(evt, outcome);
         update evt;
 
@@ -147,21 +146,24 @@ public with sharing class GoogleCalendarSyncService {
             return result;
         }
 
-        List<String> sourceCalendarIds = parseGoogleCalendarIds(calendarRow.Google_Import_Calendar_Ids__c);
+        List<String> sourceCalendarIds = GoogleCalendarImportService.parseGoogleCalendarIds(
+            calendarRow.Google_Import_Calendar_Ids__c
+        );
         if (sourceCalendarIds.isEmpty()) {
             result.success = false;
             result.message = 'Choose at least one Google calendar to import into Salesforce.';
             return result;
         }
 
-        Map<String, Calendar_Event__c> existingByKey = loadExistingImportedEvents(calendarId, sourceCalendarIds);
+        Map<String, Calendar_Event__c> existingByKey =
+            GoogleCalendarImportService.loadExistingImportedEvents(calendarId, sourceCalendarIds);
         List<Calendar_Event__c> upserts = new List<Calendar_Event__c>();
         List<String> errors = new List<String>();
         Integer processedCount = 0;
 
         for (String sourceCalendarId : sourceCalendarIds) {
             try {
-                for (Object rawItem : loadGoogleEvents(sourceCalendarId, start, endDate)) {
+                for (Object rawItem : GoogleCalendarImportService.loadGoogleEvents(sourceCalendarId, start, endDate)) {
                     if (!(rawItem instanceof Map<String, Object>)) {
                         continue;
                     }
@@ -172,12 +174,21 @@ public with sharing class GoogleCalendarSyncService {
                         continue;
                     }
 
-                    String eventKey = buildImportEventKey(sourceCalendarId, externalEventId);
+                    String eventKey = GoogleCalendarImportService.buildImportEventKey(
+                        sourceCalendarId,
+                        externalEventId
+                    );
                     Calendar_Event__c row = existingByKey.get(eventKey);
 
                     if (((String) item.get('status')) == 'cancelled') {
                         if (row != null) {
-                            applyImportedGoogleEvent(row, calendarId, sourceCalendarId, item, true);
+                            GoogleCalendarImportService.applyImportedGoogleEvent(
+                                row,
+                                calendarId,
+                                sourceCalendarId,
+                                item,
+                                true
+                            );
                             upserts.add(row);
                             processedCount++;
                         }
@@ -188,7 +199,13 @@ public with sharing class GoogleCalendarSyncService {
                         row = new Calendar_Event__c();
                     }
 
-                    applyImportedGoogleEvent(row, calendarId, sourceCalendarId, item, false);
+                    GoogleCalendarImportService.applyImportedGoogleEvent(
+                        row,
+                        calendarId,
+                        sourceCalendarId,
+                        item,
+                        false
+                    );
                     upserts.add(row);
                     existingByKey.put(eventKey, row);
                     processedCount++;
@@ -225,6 +242,96 @@ public with sharing class GoogleCalendarSyncService {
 
     public static SyncResult pushChangedEventsForCalendar(Id calendarId, Datetime start, Datetime endDate) {
         return queueEventsForCalendar(calendarId, start, endDate, true);
+    }
+
+    public static void queueMutationSync(Id calendarEventId) {
+        if (calendarEventId == null) {
+            return;
+        }
+
+        queueMutationSync(new List<Id>{ calendarEventId });
+    }
+
+    public static void queueMutationSync(List<Id> calendarEventIds) {
+        List<Id> normalizedIds = new List<Id>();
+        Set<Id> seenIds = new Set<Id>();
+
+        for (Id eventId : calendarEventIds == null ? new List<Id>() : calendarEventIds) {
+            if (eventId == null || seenIds.contains(eventId)) {
+                continue;
+            }
+
+            seenIds.add(eventId);
+            normalizedIds.add(eventId);
+        }
+
+        if (normalizedIds.isEmpty()) {
+            return;
+        }
+
+        Map<Id, List<Id>> eventIdsByCalendar = new Map<Id, List<Id>>();
+        Map<Id, String> defaultGoogleCalendarIdsByCalendar = new Map<Id, String>();
+
+        for (Calendar_Event__c row : [
+            SELECT Id,
+                   Calendar__c,
+                 Is_Recurrence_Exception__c,
+                 External_Event_Id__c,
+                   Sync_Source__c,
+                   Google_Source_Calendar_Id__c,
+                   Calendar__r.Google_Sync_Enabled__c,
+                   Calendar__r.Google_Calendar_Id__c
+            FROM Calendar_Event__c
+            WHERE Id IN :normalizedIds
+        ]) {
+            if (row.Calendar__c == null || row.Calendar__r.Google_Sync_Enabled__c != true) {
+                continue;
+            }
+
+            if (row.Is_Recurrence_Exception__c == true && String.isBlank(row.External_Event_Id__c)) {
+                continue;
+            }
+
+            Boolean hasSyncTarget =
+                !String.isBlank(row.Calendar__r.Google_Calendar_Id__c) ||
+                (row.Sync_Source__c == 'Google' && !String.isBlank(row.Google_Source_Calendar_Id__c));
+            if (hasSyncTarget != true) {
+                continue;
+            }
+
+            if (!eventIdsByCalendar.containsKey(row.Calendar__c)) {
+                eventIdsByCalendar.put(row.Calendar__c, new List<Id>());
+            }
+
+            eventIdsByCalendar.get(row.Calendar__c).add(row.Id);
+            if (!defaultGoogleCalendarIdsByCalendar.containsKey(row.Calendar__c)) {
+                defaultGoogleCalendarIdsByCalendar.put(
+                    row.Calendar__c,
+                    row.Calendar__r.Google_Calendar_Id__c
+                );
+            }
+        }
+
+        for (Id calendarId : eventIdsByCalendar.keySet()) {
+            System.enqueueJob(
+                new BulkGoogleSyncQueueable(
+                    eventIdsByCalendar.get(calendarId),
+                    calendarId,
+                    defaultGoogleCalendarIdsByCalendar.get(calendarId),
+                    0,
+                    0,
+                    0
+                )
+            );
+        }
+    }
+
+    public static void queueDeletedEventSync(String googleCalendarId, String externalEventId) {
+        if (String.isBlank(googleCalendarId) || String.isBlank(externalEventId)) {
+            return;
+        }
+
+        System.enqueueJob(new DeletedGoogleSyncQueueable(googleCalendarId, externalEventId));
     }
 
     private static SyncResult queueEventsForCalendar(
@@ -312,7 +419,8 @@ public with sharing class GoogleCalendarSyncService {
         String soql =
             'SELECT Id, Last_Synced_At__c, Sync_Status__c, LastModifiedDate ' +
             'FROM Calendar_Event__c ' +
-            'WHERE Calendar__c = :calendarId';
+            'WHERE Calendar__c = :calendarId ' +
+            'AND (Is_Recurrence_Exception__c = false OR Is_Recurrence_Exception__c = null OR External_Event_Id__c != null)';
 
         if (start != null) {
             soql += ' AND (End__c = NULL OR End__c >= :start)';
@@ -403,6 +511,8 @@ public with sharing class GoogleCalendarSyncService {
                        All_Day__c,
                        Notes__c,
                        Status__c,
+                       Is_Recurrence_Exception__c,
+                       Recurrence_Rule__c,
                        External_Event_Id__c,
                        Sync_Status__c,
                        Sync_Error__c,
@@ -420,9 +530,10 @@ public with sharing class GoogleCalendarSyncService {
             Integer localErrorCount = errorCount;
 
             for (Calendar_Event__c evt : events) {
-                EventSyncOutcome outcome = syncSingleEvent(
+                GoogleCalendarExportService.ExportOutcome outcome =
+                    GoogleCalendarExportService.syncSingleEvent(
                     evt,
-                    resolveTargetGoogleCalendarId(evt, googleCalendarId)
+                    GoogleCalendarExportService.resolveTargetGoogleCalendarId(evt, googleCalendarId)
                 );
                 applyOutcome(evt, outcome);
                 updates.add(evt);
@@ -453,357 +564,41 @@ public with sharing class GoogleCalendarSyncService {
         }
     }
 
-    private static String validateCalendarSync(Calendar_Event__c evt, String targetGoogleCalendarId) {
-        if (evt == null) {
-            return 'Event not found.';
+    public class DeletedGoogleSyncQueueable implements System.Queueable, Database.AllowsCallouts {
+        private String googleCalendarId;
+        private String externalEventId;
+
+        public DeletedGoogleSyncQueueable(String googleCalendarId, String externalEventId) {
+            this.googleCalendarId = googleCalendarId;
+            this.externalEventId = externalEventId;
         }
 
-        if (evt.Calendar__c == null) {
-            return 'Event is not linked to a Team Calendar.';
+        public void execute(System.QueueableContext context) {
+            GoogleCalendarExportService.deleteExternalEvent(
+                googleCalendarId,
+                externalEventId,
+                'Event deleted from Google Calendar.'
+            );
         }
-
-        if (evt.Calendar__r.Google_Sync_Enabled__c != true) {
-            return 'Google sync is not enabled for this Team Calendar.';
-        }
-
-        if (String.isBlank(targetGoogleCalendarId)) {
-            return 'No Google calendar is configured for this event.';
-        }
-
-        return null;
     }
 
-    private static String resolveTargetGoogleCalendarId(
+    private static void applyOutcome(
         Calendar_Event__c evt,
-        String defaultGoogleCalendarId
+        GoogleCalendarExportService.ExportOutcome outcome
     ) {
-        if (
-            evt != null &&
-            evt.Sync_Source__c == 'Google' &&
-            !String.isBlank(evt.Google_Source_Calendar_Id__c)
-        ) {
-            return evt.Google_Source_Calendar_Id__c;
-        }
-
-        return defaultGoogleCalendarId;
-    }
-
-    private static EventSyncOutcome syncSingleEvent(Calendar_Event__c evt, String googleCalendarId) {
-        EventSyncOutcome outcome = new EventSyncOutcome();
-
-        if (evt == null) {
-            outcome.success = false;
-            outcome.message = 'Event not found.';
-            return outcome;
-        }
-
-        HttpRequest req = new HttpRequest();
-        req.setHeader('Content-Type', 'application/json');
-        req.setTimeout(20000);
-
-        String encodedCalendarId = EncodingUtil.urlEncode(googleCalendarId, 'UTF-8');
-        Boolean isInsert = String.isBlank(evt.External_Event_Id__c);
-
-        if (isInsert) {
-            req.setMethod('POST');
-            req.setEndpoint(
-                'callout:' + GoogleCalendarConnectionService.NAMED_CREDENTIAL_DEVELOPER_NAME +
-                '/calendar/v3/calendars/' + encodedCalendarId + '/events'
-            );
-        } else {
-            String encodedEventId = EncodingUtil.urlEncode(evt.External_Event_Id__c, 'UTF-8');
-            req.setMethod('PATCH');
-            req.setEndpoint(
-                'callout:' + GoogleCalendarConnectionService.NAMED_CREDENTIAL_DEVELOPER_NAME +
-                '/calendar/v3/calendars/' + encodedCalendarId + '/events/' + encodedEventId
-            );
-        }
-
-        Map<String, Object> payload = new Map<String, Object>();
-        payload.put('summary', evt.Name);
-
-        if (!String.isBlank(evt.Notes__c)) {
-            payload.put('description', evt.Notes__c);
-        }
-
-        if (evt.All_Day__c == true) {
-            if (evt.Start__c == null) {
-                outcome.success = false;
-                outcome.message = 'Start is required for all-day events.';
-                return outcome;
-            }
-
-            Date startDate = evt.Start__c.date();
-            Date endDateValue = evt.End__c != null ? evt.End__c.date() : startDate;
-
-            if (endDateValue <= startDate) {
-                endDateValue = startDate.addDays(1);
-            }
-
-            payload.put('start', new Map<String, Object>{ 'date' => String.valueOf(startDate) });
-            payload.put('end', new Map<String, Object>{ 'date' => String.valueOf(endDateValue) });
-        } else {
-            if (evt.Start__c == null || evt.End__c == null) {
-                outcome.success = false;
-                outcome.message = 'Start and End are required for timed events.';
-                return outcome;
-            }
-
-            payload.put(
-                'start',
-                new Map<String, Object>{
-                    'dateTime' => evt.Start__c.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss\'Z\''),
-                    'timeZone' => 'UTC'
-                }
-            );
-            payload.put(
-                'end',
-                new Map<String, Object>{
-                    'dateTime' => evt.End__c.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss\'Z\''),
-                    'timeZone' => 'UTC'
-                }
-            );
-        }
-
-        req.setBody(JSON.serialize(payload));
-
-        try {
-            Http http = new Http();
-            HttpResponse res = http.send(req);
-            Integer statusCode = res.getStatusCode();
-
-            if (statusCode >= 200 && statusCode < 300) {
-                Map<String, Object> responseMap =
-                    (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
-
-                outcome.success = true;
-                outcome.externalEventId = (String) responseMap.get('id');
-                outcome.message = isInsert
-                    ? 'Event created in Google Calendar.'
-                    : 'Event updated in Google Calendar.';
-                return outcome;
-            }
-
-            outcome.success = false;
-            outcome.message = 'Google sync failed. HTTP ' + statusCode + ': ' + res.getBody();
-            return outcome;
-        } catch (Exception e) {
-            outcome.success = false;
-            outcome.message = e.getMessage();
-            return outcome;
-        }
-    }
-
-    private static void applyOutcome(Calendar_Event__c evt, EventSyncOutcome outcome) {
         evt.Last_Synced_At__c = System.now();
 
         if (outcome.success) {
             evt.External_Event_Id__c = outcome.externalEventId;
             evt.Sync_Status__c = 'Synced';
             evt.Sync_Error__c = null;
-            evt.Sync_Source__c = 'Salesforce';
+            evt.Sync_Source__c = String.isBlank(evt.Google_Source_Calendar_Id__c)
+                ? 'Salesforce'
+                : 'Google';
             return;
         }
 
         evt.Sync_Status__c = 'Error';
         evt.Sync_Error__c = outcome.message;
-    }
-
-    private static Map<String, Calendar_Event__c> loadExistingImportedEvents(
-        Id calendarId,
-        List<String> googleCalendarIds
-    ) {
-        Map<String, Calendar_Event__c> results = new Map<String, Calendar_Event__c>();
-
-        if (calendarId == null || googleCalendarIds == null || googleCalendarIds.isEmpty()) {
-            return results;
-        }
-
-        for (Calendar_Event__c row : [
-            SELECT Id,
-                   Name,
-                   Start__c,
-                   End__c,
-                   All_Day__c,
-                   Notes__c,
-                   Status__c,
-                   External_Event_Id__c,
-                   Sync_Status__c,
-                   Sync_Error__c,
-                   Last_Synced_At__c,
-                   Sync_Source__c,
-                   Google_Source_Calendar_Id__c,
-                   Calendar__c
-            FROM Calendar_Event__c
-            WHERE Calendar__c = :calendarId
-              AND Sync_Source__c = 'Google'
-              AND Google_Source_Calendar_Id__c IN :googleCalendarIds
-              AND External_Event_Id__c != NULL
-              LIMIT 50000
-        ]) {
-            results.put(buildImportEventKey(row.Google_Source_Calendar_Id__c, row.External_Event_Id__c), row);
-        }
-
-        return results;
-    }
-
-    private static final Integer MAX_IMPORT_PAGES = 40;
-
-    private static List<Object> loadGoogleEvents(
-        String googleCalendarId,
-        Datetime start,
-        Datetime endDate
-    ) {
-        List<Object> results = new List<Object>();
-        String nextPageToken;
-        Integer pageCount = 0;
-
-        do {
-            pageCount++;
-            HttpRequest request = new HttpRequest();
-            request.setMethod('GET');
-            request.setEndpoint(buildGoogleImportEndpoint(googleCalendarId, start, endDate, nextPageToken));
-            request.setTimeout(20000);
-
-            HttpResponse response = new Http().send(request);
-            Integer statusCode = response.getStatusCode();
-
-            if (statusCode < 200 || statusCode >= 300) {
-                throw new AuraHandledException(
-                    'Unable to load Google events. HTTP ' + statusCode + ': ' + response.getBody()
-                );
-            }
-
-            Map<String, Object> parsed = (Map<String, Object>) JSON.deserializeUntyped(response.getBody());
-            List<Object> items = parsed != null ? (List<Object>) parsed.get('items') : null;
-
-            if (items != null) {
-                results.addAll(items);
-            }
-
-            nextPageToken = parsed != null ? (String) parsed.get('nextPageToken') : null;
-        } while (!String.isBlank(nextPageToken) && pageCount < MAX_IMPORT_PAGES);
-
-        return results;
-    }
-
-    private static String buildGoogleImportEndpoint(
-        String googleCalendarId,
-        Datetime start,
-        Datetime endDate,
-        String nextPageToken
-    ) {
-        String encodedCalendarId = EncodingUtil.urlEncode(googleCalendarId, 'UTF-8');
-        String endpoint =
-            'callout:' + GoogleCalendarConnectionService.NAMED_CREDENTIAL_DEVELOPER_NAME +
-            '/calendar/v3/calendars/' + encodedCalendarId +
-            '/events?singleEvents=true&showDeleted=true&maxResults=' + IMPORT_PAGE_SIZE +
-            '&fields=items(id,status,summary,description,start(date,dateTime,timeZone),end(date,dateTime,timeZone)),nextPageToken';
-
-        if (start != null) {
-            endpoint += '&timeMin=' + EncodingUtil.urlEncode(start.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss\'Z\''), 'UTF-8');
-        }
-
-        if (endDate != null) {
-            endpoint += '&timeMax=' + EncodingUtil.urlEncode(endDate.formatGmt('yyyy-MM-dd\'T\'HH:mm:ss\'Z\''), 'UTF-8');
-        }
-
-        if (String.isNotBlank(nextPageToken)) {
-            endpoint += '&pageToken=' + EncodingUtil.urlEncode(nextPageToken, 'UTF-8');
-        }
-
-        return endpoint;
-    }
-
-    private static void applyImportedGoogleEvent(
-        Calendar_Event__c row,
-        Id calendarId,
-        String googleSourceCalendarId,
-        Map<String, Object> item,
-        Boolean cancelled
-    ) {
-        Map<String, Object> startBlock = item.get('start') instanceof Map<String, Object>
-            ? (Map<String, Object>) item.get('start')
-            : null;
-        Map<String, Object> endBlock = item.get('end') instanceof Map<String, Object>
-            ? (Map<String, Object>) item.get('end')
-            : null;
-
-        row.Calendar__c = calendarId;
-        row.Name = String.isBlank((String) item.get('summary')) ? 'Google Event' : (String) item.get('summary');
-        row.Notes__c = (String) item.get('description');
-        row.External_Event_Id__c = (String) item.get('id');
-        row.Google_Source_Calendar_Id__c = googleSourceCalendarId;
-        row.Sync_Source__c = 'Google';
-        row.Sync_Status__c = 'Imported';
-        row.Sync_Error__c = null;
-        row.Last_Synced_At__c = System.now();
-
-        if (cancelled == true) {
-            row.Status__c = 'Cancelled';
-            return;
-        }
-
-        if (startBlock != null && String.isNotBlank((String) startBlock.get('date'))) {
-            Date startDate = parseGoogleDate((String) startBlock.get('date'));
-            Date endDateValue = endBlock != null && String.isNotBlank((String) endBlock.get('date'))
-                ? parseGoogleDate((String) endBlock.get('date'))
-                : startDate.addDays(1);
-
-            row.All_Day__c = true;
-            row.Start__c = Datetime.newInstance(startDate, Time.newInstance(0, 0, 0, 0));
-            row.End__c = Datetime.newInstance(endDateValue, Time.newInstance(0, 0, 0, 0));
-        } else {
-            row.All_Day__c = false;
-            row.Start__c = startBlock != null && String.isNotBlank((String) startBlock.get('dateTime'))
-                ? parseGoogleDateTime((String) startBlock.get('dateTime'))
-                : null;
-            row.End__c = endBlock != null && String.isNotBlank((String) endBlock.get('dateTime'))
-                ? parseGoogleDateTime((String) endBlock.get('dateTime'))
-                : null;
-        }
-
-        row.Status__c = ((String) item.get('status')) == 'confirmed' ? 'Confirmed' : 'Planned';
-    }
-
-    private static Date parseGoogleDate(String value) {
-        return (Date) JSON.deserialize(JSON.serialize(value), Date.class);
-    }
-
-    private static Datetime parseGoogleDateTime(String value) {
-        return (Datetime) JSON.deserialize(JSON.serialize(value), Datetime.class);
-    }
-
-    private static List<String> parseGoogleCalendarIds(String rawValue) {
-        if (String.isBlank(rawValue)) {
-            return new List<String>();
-        }
-
-        try {
-            Object parsed = JSON.deserializeUntyped(rawValue);
-            if (!(parsed instanceof List<Object>)) {
-                return new List<String>();
-            }
-
-            List<String> results = new List<String>();
-            for (Object value : (List<Object>) parsed) {
-                if (!(value instanceof String)) {
-                    continue;
-                }
-
-                String normalized = ((String) value).trim();
-                if (!String.isBlank(normalized) && !results.contains(normalized)) {
-                    results.add(normalized);
-                }
-            }
-
-            return results;
-        } catch (Exception ex) {
-            return new List<String>();
-        }
-    }
-
-    private static String buildImportEventKey(String googleCalendarId, String externalEventId) {
-        return String.valueOf(googleCalendarId) + '::' + String.valueOf(externalEventId);
     }
 }

@@ -12,8 +12,8 @@ public with sharing class GoogleCalendarConnectionService {
      */
     public static final String NAMED_CREDENTIAL_DEVELOPER_NAME = 'GoogleCalendar';
     public static final String EXTERNAL_CREDENTIAL_DEVELOPER_NAME = 'GoogleCalendar_ExternalCredential';
-    public static final String NAMED_PRINCIPAL_NAME = 'GoogleCalendarNamedPrincipal';
-    public static final String CONNECTION_MODE = 'NamedPrincipal'; // NamedPrincipal or PerUserPrincipal
+    public static final String PRINCIPAL_NAME = 'GoogleCalendarPerUserPrincipal';
+    public static final String CONNECTION_MODE = 'PerUserPrincipal'; // NamedPrincipal or PerUserPrincipal
 
     public class ConnectionStateDTO {
         @AuraEnabled public Boolean configured;
@@ -119,16 +119,12 @@ public with sharing class GoogleCalendarConnectionService {
             input.principalType = resolvePrincipalType();
 
             if (isNamedPrincipalMode()) {
-                input.principalName = NAMED_PRINCIPAL_NAME;
+                input.principalName = PRINCIPAL_NAME;
             }
 
             ConnectApi.OAuthCredentialAuthUrl authUrlResponse =
                 ConnectApi.NamedCredentials.getOAuthCredentialAuthUrl(input);
-
-            Map<String, Object> payload =
-                (Map<String, Object>) JSON.deserializeUntyped(JSON.serialize(authUrlResponse));
-
-            result.authUrl = (String) payload.get('url');
+            result.authUrl = extractAuthenticationUrl(authUrlResponse);
             result.success = !String.isBlank(result.authUrl);
             result.message = result.success
                 ? 'Open the Google authentication URL to connect this calendar.'
@@ -152,7 +148,7 @@ public with sharing class GoogleCalendarConnectionService {
             if (isNamedPrincipalMode()) {
                 ConnectApi.NamedCredentials.deleteCredential(
                     EXTERNAL_CREDENTIAL_DEVELOPER_NAME,
-                    NAMED_PRINCIPAL_NAME,
+                    PRINCIPAL_NAME,
                     ConnectApi.CredentialPrincipalType.NamedPrincipal
                 );
             } else {
@@ -294,7 +290,7 @@ public with sharing class GoogleCalendarConnectionService {
         state.message = 'Select Connect Google to authenticate.';
         state.namedCredential = NAMED_CREDENTIAL_DEVELOPER_NAME;
         state.externalCredential = EXTERNAL_CREDENTIAL_DEVELOPER_NAME;
-        state.principalName = NAMED_PRINCIPAL_NAME;
+        state.principalName = PRINCIPAL_NAME;
         state.googleCalendarId = calendarRow != null ? calendarRow.Google_Calendar_Id__c : null;
         state.googleImportCalendarIds = calendarRow != null
             ? parseGoogleCalendarIds(calendarRow.Google_Import_Calendar_Ids__c)
@@ -344,6 +340,25 @@ public with sharing class GoogleCalendarConnectionService {
         return isNamedPrincipalMode()
             ? ConnectApi.CredentialPrincipalType.NamedPrincipal
             : ConnectApi.CredentialPrincipalType.PerUserPrincipal;
+    }
+
+    @TestVisible
+    private static String extractAuthenticationUrl(ConnectApi.OAuthCredentialAuthUrl authUrlResponse) {
+        if (authUrlResponse == null) {
+            return null;
+        }
+
+        if (String.isNotBlank(authUrlResponse.authenticationUrl)) {
+            return authUrlResponse.authenticationUrl;
+        }
+
+        Map<String, Object> payload =
+            (Map<String, Object>) JSON.deserializeUntyped(JSON.serialize(authUrlResponse));
+        String authenticationUrl = (String) payload.get('authenticationUrl');
+
+        return String.isBlank(authenticationUrl)
+            ? (String) payload.get('url')
+            : authenticationUrl;
     }
 
     private static Boolean isNamedPrincipalMode() {

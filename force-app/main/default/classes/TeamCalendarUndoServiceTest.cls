@@ -1,5 +1,7 @@
 @IsTest
 private class TeamCalendarUndoServiceTest {
+    private static Integer restoreCallCount = 0;
+
     @IsTest
     static void undeleteCalendarEvent_requiresRecordId() {
         Boolean threw = false;
@@ -188,5 +190,68 @@ private class TeamCalendarUndoServiceTest {
 
         System.assertEquals(eventRow.Id, restoredEventId);
         System.assertEquals(1, [SELECT COUNT() FROM Calendar_Event__c WHERE Id = :eventRow.Id]);
+    }
+
+    @IsTest
+    static void undeleteCalendarEvent_requeuesGoogleSyncForEnabledCalendar() {
+        restoreCallCount = 0;
+
+        Team_Calendar__c calendarRow = new Team_Calendar__c(
+            Name = 'Restore Sync Calendar',
+            OwnerId = UserInfo.getUserId(),
+            Color__c = '#0176D3',
+            Is_Active__c = true,
+            Google_Sync_Enabled__c = true,
+            Google_Calendar_Id__c = 'restore@example.com'
+        );
+        insert calendarRow;
+
+        Calendar_Event__c eventRow = new Calendar_Event__c(
+            Name = 'Restore Synced Event',
+            Calendar__c = calendarRow.Id,
+            OwnerId = UserInfo.getUserId(),
+            Start__c = Datetime.newInstance(Date.today(), Time.newInstance(16, 0, 0, 0)),
+            End__c = Datetime.newInstance(Date.today(), Time.newInstance(17, 0, 0, 0)),
+            Status__c = 'Confirmed',
+            All_Day__c = false,
+            External_Event_Id__c = 'old-restore-id',
+            Sync_Status__c = 'Synced',
+            Last_Synced_At__c = System.now(),
+            Sync_Source__c = 'Salesforce'
+        );
+        insert eventRow;
+
+        delete eventRow;
+
+        Test.setMock(HttpCalloutMock.class, new GoogleUndoSyncMock());
+
+        Test.startTest();
+        TeamCalendarUndoService.undeleteCalendarEvent(String.valueOf(eventRow.Id));
+        Test.stopTest();
+
+        Calendar_Event__c restoredEvent = [
+            SELECT External_Event_Id__c, Sync_Status__c, IsDeleted
+            FROM Calendar_Event__c
+            WHERE Id = :eventRow.Id
+            LIMIT 1
+            ALL ROWS
+        ];
+        System.assertEquals(false, restoredEvent.IsDeleted);
+        System.assertEquals('restored-google-id', restoredEvent.External_Event_Id__c);
+        System.assertEquals('Synced', restoredEvent.Sync_Status__c);
+        System.assertEquals(1, restoreCallCount);
+    }
+
+    private class GoogleUndoSyncMock implements HttpCalloutMock {
+        public HttpResponse respond(HttpRequest req) {
+            restoreCallCount += 1;
+            System.assertEquals('POST', req.getMethod());
+
+            HttpResponse response = new HttpResponse();
+            response.setStatusCode(200);
+            response.setHeader('Content-Type', 'application/json');
+            response.setBody('{"id":"restored-google-id"}');
+            return response;
+        }
     }
 }

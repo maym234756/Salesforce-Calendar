@@ -93,6 +93,7 @@ public with sharing class TeamCalendarRecordMutationService {
             resolvedOwnerId
         );
         insert primaryRow;
+        List<Id> createdCalendarEventIds = new List<Id>{ primaryRow.Id };
 
         MutationResultDTO result = new MutationResultDTO();
         result.recordId = primaryRow.Id;
@@ -104,6 +105,7 @@ public with sharing class TeamCalendarRecordMutationService {
             request.followUpEvents == null ? new List<CalendarEventMutationInput>() : request.followUpEvents;
 
         if (followUpInputs.isEmpty()) {
+            queueGoogleSyncForCalendarEvents(createdCalendarEventIds);
             return result;
         }
 
@@ -132,6 +134,7 @@ public with sharing class TeamCalendarRecordMutationService {
 
         result.followUpRequestedCount = followUpRows.size();
         if (followUpRows.isEmpty()) {
+            queueGoogleSyncForCalendarEvents(createdCalendarEventIds);
             return result;
         }
 
@@ -139,10 +142,13 @@ public with sharing class TeamCalendarRecordMutationService {
         for (Database.SaveResult saveResult : saveResults) {
             if (saveResult.isSuccess()) {
                 result.followUpCreatedCount += 1;
+                createdCalendarEventIds.add(saveResult.getId());
             } else {
                 result.followUpFailedCount += 1;
             }
         }
+
+        queueGoogleSyncForCalendarEvents(createdCalendarEventIds);
 
         return result;
     }
@@ -189,6 +195,7 @@ public with sharing class TeamCalendarRecordMutationService {
             existingRow.OwnerId
         );
         update updatedRow;
+        queueGoogleSyncForCalendarEvents(new List<Id>{ updatedRow.Id });
         return updatedRow.Id;
     }
 
@@ -293,7 +300,13 @@ public with sharing class TeamCalendarRecordMutationService {
 
         Calendar_Event__c existingRow;
         List<Calendar_Event__c> existingRows = [
-            SELECT Id, OwnerId
+            SELECT Id,
+                   OwnerId,
+                   External_Event_Id__c,
+                   Sync_Source__c,
+                   Google_Source_Calendar_Id__c,
+                   Calendar__r.Google_Sync_Enabled__c,
+                   Calendar__r.Google_Calendar_Id__c
             FROM Calendar_Event__c
             WHERE Id = :resolvedRecordId
             LIMIT 1
@@ -306,6 +319,7 @@ public with sharing class TeamCalendarRecordMutationService {
         enforceCalendarEventMutationAccess(runningUserId, isSecurityAdmin, existingRow.OwnerId);
         enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
         delete existingRow;
+        queueGoogleDeleteForCalendarEvent(existingRow);
         return existingRow.Id;
     }
 
@@ -556,6 +570,101 @@ public with sharing class TeamCalendarRecordMutationService {
         }
     }
 
+    private static void queueGoogleSyncForCalendarEvents(List<Id> eventIds) {
+        GoogleCalendarSyncService.queueMutationSync(eventIds);
+    }
+
+    private static void queueGoogleDeleteForCalendarEvent(Calendar_Event__c existingRow) {
+        if (existingRow == null || existingRow.Calendar__r.Google_Sync_Enabled__c != true) {
+            return;
+        }
+
+        String targetGoogleCalendarId = GoogleCalendarExportService.resolveTargetGoogleCalendarId(
+            existingRow,
+            existingRow.Calendar__r.Google_Calendar_Id__c
+        );
+        GoogleCalendarSyncService.queueDeletedEventSync(
+            targetGoogleCalendarId,
+            existingRow.External_Event_Id__c
+        );
+    }
+
+    private static void queueGoogleDeletesForCalendarEvents(List<Calendar_Event__c> rows) {
+        for (Calendar_Event__c row : rows == null ? new List<Calendar_Event__c>() : rows) {
+            queueGoogleDeleteForCalendarEvent(row);
+        }
+    }
+
+    private static void queueGoogleSyncForMappedRecurringEvent(Calendar_Event__c row) {
+        if (row == null || String.isBlank(row.External_Event_Id__c)) {
+            return;
+        }
+
+        queueGoogleSyncForCalendarEvents(new List<Id>{ row.Id });
+    }
+
+    private static void applyRecurringExceptionSyncContext(
+        Calendar_Event__c template,
+        Calendar_Event__c targetRow,
+        Calendar_Event__c existingRow
+    ) {
+        if (targetRow == null) {
+            return;
+        }
+
+        if (existingRow != null && String.isNotBlank(existingRow.External_Event_Id__c)) {
+            targetRow.External_Event_Id__c = existingRow.External_Event_Id__c;
+        }
+
+        String googleSourceCalendarId = existingRow != null &&
+            String.isNotBlank(existingRow.Google_Source_Calendar_Id__c)
+                ? existingRow.Google_Source_Calendar_Id__c
+                : (template != null ? template.Google_Source_Calendar_Id__c : null);
+        if (String.isNotBlank(googleSourceCalendarId)) {
+            targetRow.Google_Source_Calendar_Id__c = googleSourceCalendarId;
+            targetRow.Sync_Source__c = 'Google';
+            return;
+        }
+
+        String syncSource = existingRow != null && String.isNotBlank(existingRow.Sync_Source__c)
+            ? existingRow.Sync_Source__c
+            : (template != null ? template.Sync_Source__c : null);
+        if (String.isNotBlank(syncSource)) {
+            targetRow.Sync_Source__c = syncSource;
+        }
+    }
+
+    private static void bindRecurringExceptionToGoogleInstance(
+        Calendar_Event__c template,
+        Calendar_Event__c exceptionRow,
+        String occurrenceDate
+    ) {
+        if (
+            template == null ||
+            exceptionRow == null ||
+            String.isNotBlank(exceptionRow.External_Event_Id__c) ||
+            template.Calendar__r.Google_Sync_Enabled__c != true ||
+            String.isBlank(template.External_Event_Id__c)
+        ) {
+            return;
+        }
+
+        String targetGoogleCalendarId = GoogleCalendarExportService.resolveTargetGoogleCalendarId(
+            template,
+            template.Calendar__r.Google_Calendar_Id__c
+        );
+        String recurringInstanceId = GoogleCalendarExportService.resolveRecurringInstanceExternalId(
+            template,
+            occurrenceDate,
+            targetGoogleCalendarId
+        );
+        if (String.isBlank(recurringInstanceId)) {
+            return;
+        }
+
+        exceptionRow.External_Event_Id__c = recurringInstanceId;
+    }
+
     // -------------------------------------------------------------------------
     // Recurring event operations
     // -------------------------------------------------------------------------
@@ -585,7 +694,17 @@ public with sharing class TeamCalendarRecordMutationService {
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
 
         List<Calendar_Event__c> templateRows = [
-            SELECT Id, OwnerId, Calendar__c, Recurrence_Rule__c, Start__c
+            SELECT Id,
+                   OwnerId,
+                   Calendar__c,
+                   Recurrence_Rule__c,
+                   Start__c,
+                   All_Day__c,
+                   External_Event_Id__c,
+                   Sync_Source__c,
+                   Google_Source_Calendar_Id__c,
+                   Calendar__r.Google_Sync_Enabled__c,
+                   Calendar__r.Google_Calendar_Id__c
             FROM Calendar_Event__c
             WHERE Id = :templateId
             LIMIT 1
@@ -610,6 +729,7 @@ public with sharing class TeamCalendarRecordMutationService {
                 updatedRow.Recurrence_Rule__c = template.Recurrence_Rule__c;
             }
             update updatedRow;
+            queueGoogleSyncForCalendarEvents(new List<Id>{ templateId });
             return templateId;
 
         } else if (request.scope == 'this') {
@@ -617,7 +737,10 @@ public with sharing class TeamCalendarRecordMutationService {
                 throw new AuraHandledException('Occurrence date is required for this scope.');
             }
             List<Calendar_Event__c> existing = [
-                SELECT Id
+                SELECT Id,
+                       External_Event_Id__c,
+                       Sync_Source__c,
+                       Google_Source_Calendar_Id__c
                 FROM Calendar_Event__c
                 WHERE Is_Recurrence_Exception__c = true
                 AND Recurrence_Parent__c = :templateId
@@ -634,22 +757,28 @@ public with sharing class TeamCalendarRecordMutationService {
                 Calendar_Event__c updatedEx = buildCalendarEventRow(
                     request.eventData, existing[0].Id, resolvedCalendarId, template.OwnerId
                 );
+                applyRecurringExceptionSyncContext(template, updatedEx, existing[0]);
                 updatedEx.Is_Recurrence_Exception__c = true;
                 updatedEx.Recurrence_Parent__c = templateId;
                 updatedEx.Occurrence_Date__c = request.occurrenceDate;
                 updatedEx.Recurrence_Rule__c = null;
+                bindRecurringExceptionToGoogleInstance(template, updatedEx, request.occurrenceDate);
                 update updatedEx;
+                queueGoogleSyncForMappedRecurringEvent(updatedEx);
                 return existing[0].Id;
             } else {
                 enforceCrudAccess(Calendar_Event__c.SObjectType, 'create');
                 Calendar_Event__c exRow = buildCalendarEventRow(
                     request.eventData, null, resolvedCalendarId, template.OwnerId
                 );
+                applyRecurringExceptionSyncContext(template, exRow, null);
                 exRow.Is_Recurrence_Exception__c = true;
                 exRow.Recurrence_Parent__c = templateId;
                 exRow.Occurrence_Date__c = request.occurrenceDate;
                 exRow.Recurrence_Rule__c = null;
+                bindRecurringExceptionToGoogleInstance(template, exRow, request.occurrenceDate);
                 insert exRow;
+                queueGoogleSyncForMappedRecurringEvent(exRow);
                 return exRow.Id;
             }
 
@@ -666,7 +795,12 @@ public with sharing class TeamCalendarRecordMutationService {
             update new Calendar_Event__c(Id = templateId, Recurrence_Rule__c = truncatedRRule);
 
             List<Calendar_Event__c> futureExceptions = [
-                SELECT Id
+                SELECT Id,
+                       External_Event_Id__c,
+                       Sync_Source__c,
+                       Google_Source_Calendar_Id__c,
+                       Calendar__r.Google_Sync_Enabled__c,
+                       Calendar__r.Google_Calendar_Id__c
                 FROM Calendar_Event__c
                 WHERE Is_Recurrence_Exception__c = true
                 AND Recurrence_Parent__c = :templateId
@@ -675,6 +809,7 @@ public with sharing class TeamCalendarRecordMutationService {
             if (!futureExceptions.isEmpty()) {
                 enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
                 delete futureExceptions;
+                queueGoogleDeletesForCalendarEvents(futureExceptions);
             }
 
             Id resolvedCalendarId = resolveWritableTeamCalendarId(
@@ -689,6 +824,7 @@ public with sharing class TeamCalendarRecordMutationService {
                 newTemplate.Recurrence_Rule__c = template.Recurrence_Rule__c;
             }
             insert newTemplate;
+            queueGoogleSyncForCalendarEvents(new List<Id>{ templateId, newTemplate.Id });
             return newTemplate.Id;
         }
 
@@ -717,7 +853,19 @@ public with sharing class TeamCalendarRecordMutationService {
         Boolean isSecurityAdmin = TeamCalendarUserPreferenceService.isSecurityAdmin(runningUserId);
 
         List<Calendar_Event__c> templateRows = [
-            SELECT Id, OwnerId, Calendar__c, Recurrence_Rule__c, Start__c, Name
+            SELECT Id,
+                   OwnerId,
+                   Calendar__c,
+                   Recurrence_Rule__c,
+                   Start__c,
+                   End__c,
+                   All_Day__c,
+                   Name,
+                   External_Event_Id__c,
+                   Sync_Source__c,
+                   Google_Source_Calendar_Id__c,
+                   Calendar__r.Google_Sync_Enabled__c,
+                   Calendar__r.Google_Calendar_Id__c
             FROM Calendar_Event__c
             WHERE Id = :templateId
             LIMIT 1
@@ -731,12 +879,21 @@ public with sharing class TeamCalendarRecordMutationService {
         if (scope == 'all') {
             enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
             List<Calendar_Event__c> allExceptions = [
-                SELECT Id FROM Calendar_Event__c WHERE Recurrence_Parent__c = :templateId
+                SELECT Id,
+                       External_Event_Id__c,
+                       Sync_Source__c,
+                       Google_Source_Calendar_Id__c,
+                       Calendar__r.Google_Sync_Enabled__c,
+                       Calendar__r.Google_Calendar_Id__c
+                FROM Calendar_Event__c
+                WHERE Recurrence_Parent__c = :templateId
             ];
             if (!allExceptions.isEmpty()) {
                 delete allExceptions;
+                queueGoogleDeletesForCalendarEvents(allExceptions);
             }
             delete template;
+            queueGoogleDeleteForCalendarEvent(template);
             return templateId;
 
         } else if (scope == 'this') {
@@ -744,7 +901,11 @@ public with sharing class TeamCalendarRecordMutationService {
                 throw new AuraHandledException('Occurrence date is required for this scope.');
             }
             List<Calendar_Event__c> existing = [
-                SELECT Id, Status__c
+                SELECT Id,
+                       Status__c,
+                       External_Event_Id__c,
+                       Sync_Source__c,
+                       Google_Source_Calendar_Id__c
                 FROM Calendar_Event__c
                 WHERE Is_Recurrence_Exception__c = true
                 AND Recurrence_Parent__c = :templateId
@@ -756,10 +917,17 @@ public with sharing class TeamCalendarRecordMutationService {
                     return templateId; // already tombstoned
                 }
                 enforceCrudAccess(Calendar_Event__c.SObjectType, 'update');
-                update new Calendar_Event__c(Id = existing[0].Id, Status__c = 'Deleted');
+                Calendar_Event__c deletedException = new Calendar_Event__c(
+                    Id = existing[0].Id,
+                    Status__c = 'Deleted'
+                );
+                applyRecurringExceptionSyncContext(template, deletedException, existing[0]);
+                bindRecurringExceptionToGoogleInstance(template, deletedException, occurrenceDate);
+                update deletedException;
+                queueGoogleSyncForMappedRecurringEvent(deletedException);
             } else {
                 enforceCrudAccess(Calendar_Event__c.SObjectType, 'create');
-                insert new Calendar_Event__c(
+                Calendar_Event__c deletedException = new Calendar_Event__c(
                     Name = template.Name != null ? template.Name : 'Deleted Occurrence',
                     Calendar__c = template.Calendar__c,
                     OwnerId = template.OwnerId,
@@ -767,8 +935,13 @@ public with sharing class TeamCalendarRecordMutationService {
                     Recurrence_Parent__c = templateId,
                     Occurrence_Date__c = occurrenceDate,
                     Status__c = 'Deleted',
-                    Start__c = template.Start__c
+                    Start__c = template.Start__c,
+                    End__c = template.End__c != null ? template.End__c : template.Start__c
                 );
+                applyRecurringExceptionSyncContext(template, deletedException, null);
+                bindRecurringExceptionToGoogleInstance(template, deletedException, occurrenceDate);
+                insert deletedException;
+                queueGoogleSyncForMappedRecurringEvent(deletedException);
             }
             return templateId;
 
@@ -784,7 +957,13 @@ public with sharing class TeamCalendarRecordMutationService {
                 Recurrence_Rule__c = truncateRRuleUntil(template.Recurrence_Rule__c, untilDate)
             );
             List<Calendar_Event__c> futureExceptions = [
-                SELECT Id FROM Calendar_Event__c
+                SELECT Id,
+                       External_Event_Id__c,
+                       Sync_Source__c,
+                       Google_Source_Calendar_Id__c,
+                       Calendar__r.Google_Sync_Enabled__c,
+                       Calendar__r.Google_Calendar_Id__c
+                FROM Calendar_Event__c
                 WHERE Is_Recurrence_Exception__c = true
                 AND Recurrence_Parent__c = :templateId
                 AND Occurrence_Date__c >= :occurrenceDate
@@ -792,7 +971,9 @@ public with sharing class TeamCalendarRecordMutationService {
             if (!futureExceptions.isEmpty()) {
                 enforceCrudAccess(Calendar_Event__c.SObjectType, 'delete');
                 delete futureExceptions;
+                queueGoogleDeletesForCalendarEvents(futureExceptions);
             }
+            queueGoogleSyncForCalendarEvents(new List<Id>{ templateId });
             return templateId;
         }
 

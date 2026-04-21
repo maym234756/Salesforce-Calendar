@@ -154,6 +154,30 @@ private class GoogleCalendarConnectionServiceTest {
     }
 
     @IsTest
+    static void extractAuthenticationUrl_prefersAuthenticationUrlAndFallsBackToUrl() {
+        ConnectApi.OAuthCredentialAuthUrl currentShape =
+            (ConnectApi.OAuthCredentialAuthUrl) JSON.deserialize(
+                '{"authenticationUrl":"https://example.com/current"}',
+                ConnectApi.OAuthCredentialAuthUrl.class
+            );
+        ConnectApi.OAuthCredentialAuthUrl legacyShape =
+            (ConnectApi.OAuthCredentialAuthUrl) JSON.deserialize(
+                '{"url":"https://example.com/legacy"}',
+                ConnectApi.OAuthCredentialAuthUrl.class
+            );
+
+        System.assertEquals(
+            'https://example.com/current',
+            GoogleCalendarConnectionService.extractAuthenticationUrl(currentShape)
+        );
+        System.assertEquals(
+            'https://example.com/legacy',
+            GoogleCalendarConnectionService.extractAuthenticationUrl(legacyShape)
+        );
+        System.assertEquals(null, GoogleCalendarConnectionService.extractAuthenticationUrl(null));
+    }
+
+    @IsTest
     static void listAvailableCalendars_returnsWritableGoogleCalendars() {
         Team_Calendar__c calendarRow = createCalendar('List Calendar', true, 'team@example.com');
         calendarRow.Google_Import_Calendar_Ids__c = '["primary"]';

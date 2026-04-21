@@ -5,7 +5,7 @@ This document explains how to configure authentication so the Apex callouts in `
 Overview
 - Apex uses a callout URL with the named credential prefix `callout:GoogleCalendar`.
 - Configure an Auth. Provider (Google OAuth 2.0), a Named Credential referencing it, and set remote site/CSP if needed.
-- The live code also expects an External Credential named `GoogleCalendar_ExternalCredential` and a named principal called `GoogleCalendarNamedPrincipal`.
+- The live code expects an External Credential named `GoogleCalendar_ExternalCredential` and a per-user principal called `GoogleCalendarPerUserPrincipal`.
 - Two options:
   1. Named Credential with OAuth 2.0 (recommended for user-delegated access).
   2. Named Credential with a service account and JWT (requires GCP setup; less interactive).
@@ -51,7 +51,7 @@ Steps (Auth Provider + Named Credential)
    - If you use the metadata templates in this repo, you can deploy them instead of creating them manually.
    - External Credential expected by the code:
      - Developer Name: `GoogleCalendar_ExternalCredential`
-     - Named Principal: `GoogleCalendarNamedPrincipal`
+   - Per-User Principal: `GoogleCalendarPerUserPrincipal`
 
 4. Create a Named Credential
    - In Setup -> Named Credentials -> New Named Credential
@@ -62,7 +62,7 @@ Steps (Auth Provider + Named Credential)
      - Authentication: select `GoogleCalendar_ExternalCredential`
      - Generate Authorization Header: true
      - Allow Merge Fields in HTTP Header: false
-     - Save and click "Authenticate" (this will open the OAuth flow to grant access). Authenticate using a Google account with access to the Google calendars you want to sync.
+   - Save and click "Authenticate" (this will open the OAuth flow to grant access for the current Salesforce user). Authenticate using a Google account with access to the Google calendars you want to sync.
 
 5. Update Apex callout endpoint (if needed)
    - The Apex class uses `callout:GoogleCalendar/calendar/v3/calendars/...`
