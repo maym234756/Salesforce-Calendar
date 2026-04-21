@@ -43,3 +43,12 @@ $RECYCLE.BIN/
 **/__pycache__/
 **/.venv/
 **/venv/
+
+# Local deploy output artifacts
+/deploy-*-report.json
+/deploy-report-*.json
+/deploy-connection-alignment.json
+
+# Live recurring Google smoke artifacts
+artifacts/live-smoke/
+live-recurring-smoke-*.json

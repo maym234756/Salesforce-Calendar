@@ -1,18 +1,25 @@
-# Salesforce DX Project: Next Steps
+# Team Calendar
 
-Now that you’ve created a Salesforce DX project, what’s next? Here are some documentation resources to get you started.
+Salesforce DX project for the Team Calendar app, including Lightning components, Apex services, and Google Calendar sync integration.
 
-## How Do You Plan to Deploy Your Changes?
+## Common Commands
 
-Do you want to deploy a set of changes, or create a self-contained application? Choose a [development model](https://developer.salesforce.com/tools/vscode/en/user-guide/development-models).
+- `npm test`
+- `npm run test:unit`
+- `npm run lint`
+- `npm run prettier:verify`
 
-## Configure Your Salesforce DX Project
+## Google Calendar Docs
 
-The `sfdx-project.json` file contains useful configuration information for your project. See [Salesforce DX Project Configuration](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_ws_config.htm) in the _Salesforce DX Developer Guide_ for details about this file.
+- Named credential and external credential setup: [docs/GOOGLE_CALENDAR_NAMED_CREDENTIAL.md](docs/GOOGLE_CALENDAR_NAMED_CREDENTIAL.md)
+- Live recurring Google smoke flow: [docs/LIVE_RECURRING_GOOGLE_SMOKE.md](docs/LIVE_RECURRING_GOOGLE_SMOKE.md)
 
-## Read All About It
+## Live Smoke Runner
 
-- [Salesforce Extensions Documentation](https://developer.salesforce.com/tools/vscode/)
-- [Salesforce CLI Setup Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_setup.meta/sfdx_setup/sfdx_setup_intro.htm)
-- [Salesforce DX Developer Guide](https://developer.salesforce.com/docs/atlas.en-us.sfdx_dev.meta/sfdx_dev/sfdx_dev_intro.htm)
-- [Salesforce CLI Command Reference](https://developer.salesforce.com/docs/atlas.en-us.sfdx_cli_reference.meta/sfdx_cli_reference/cli_reference.htm)
+Run the full recurring Google smoke suite from Windows PowerShell:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/run-liveRecurringGoogleSmoke.ps1 -Phase all -BaseKey "Live Recurring Smoke 20260420C" -Execute
+```
+
+The suite writes its per-phase JSON outputs under `artifacts/live-smoke/<base-key>/` by default. Single phases can still be run directly with `-Phase setup`, `-Phase verifyUpdate`, `-Phase verifyCleanup`, and so on.
