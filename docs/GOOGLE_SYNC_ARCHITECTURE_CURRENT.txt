@@ -1,0 +1,354 @@
+================================================================================
+GOOGLE SYNC - CURRENT ARCHITECTURE (AS BUILT)
+Reviewed: 2026-04-20
+================================================================================
+
+PURPOSE
+-------
+This document describes the Google Sync system that currently exists in the
+Team Calendar workspace. It is an as-built architecture view, not the original
+plan. The goal is to show the real runtime shape, data model, user flow, and
+the current boundaries of the implementation.
+
+
+ARCHITECT FORM
+--------------
+
+1. TOP-LEVEL SYSTEM MAP
+
+    [User]
+       |
+       v
+    [calendarToolbar LWC]
+       |  emits googleimportaction / googleexportaction
+       v
+    [teamCalendarBoard LWC]
+       |
+       +--> calendarGoogleSyncState.js
+       |      - derives labels, modal states, help text, eligibility
+       |
+       +--> calendarGoogleSyncController.js
+       |      - orchestrates connection, import, export, disconnect
+       |      - refreshes board data and Google connection state
+       |
+       +--> calendarGoogleSyncModals LWC
+              - renders Connect / Import / Export modal flows
+
+    Front-end Apex calls
+       |
+       +--> GoogleCalendarConnectionService.cls
+       |      - auth URL generation
+       |      - connection probing
+       |      - Google calendar discovery
+       |      - save Team Calendar Google selections
+       |
+       +--> GoogleCalendarSyncService.cls
+       |      - manual export queueing
+       |      - manual import execution
+       |      - single-event export logic
+       |      - bulk export queueable
+       |
+       +--> GoogleCalendarSyncScheduler.cls
+              - scheduled import/export orchestration from metadata config
+
+    External dependency
+       |
+       v
+    [Salesforce Named Credential / External Credential]
+       |
+       v
+    [Google Calendar API]
+
+
+2. CONNECTION AND AUTH ARCHITECTURE
+
+    LWC
+      teamCalendarBoard -> calendarGoogleSyncController.startGoogleConnect()
+        -> GoogleCalendarConnectionService.getAuthenticationUrl(calendarId)
+
+    Apex
+      GoogleCalendarConnectionService
+        - hard-codes credential names:
+          * Named Credential: GoogleCalendar
+          * External Credential: GoogleCalendar_ExternalCredential
+          * Principal Name: GoogleCalendarNamedPrincipal
+          * Connection mode: NamedPrincipal
+        - uses ConnectApi.NamedCredentials.getOAuthCredentialAuthUrl(...)
+        - opens OAuth in a new browser tab
+        - later probes connectivity by calling Google through the Named Credential
+
+    Probe behavior
+      - If Team_Calendar__c.Google_Calendar_Id__c is blank, probe uses
+        users/me/calendarList with maxResults=1.
+      - If Team_Calendar__c.Google_Calendar_Id__c is populated, probe calls the
+        specific Google calendar resource.
+      - HTTP 2xx => connected
+      - HTTP 401/403 or auth-like exception text => authentication required
+
+
+3. EXPORT ARCHITECTURE (SALESFORCE -> GOOGLE)
+
+    Manual export flow
+      [User clicks Salesforce > Google]
+        -> teamCalendarBoard / controller validates selected Team Calendar
+        -> load Google connection state
+        -> if needed, choose Google destination calendar
+        -> runGoogleSync()
+        -> GoogleCalendarSyncService.pushEventsForCalendar(calendarId, null, null)
+
+    Queueing behavior
+      GoogleCalendarSyncService.pushEventsForCalendar(...)
+        -> validates Team Calendar exists
+        -> requires Google_Sync_Enabled__c = true
+        -> requires Google_Calendar_Id__c not blank
+        -> loads up to 50,000 Calendar_Event__c rows for the Team Calendar
+        -> enqueues BulkGoogleSyncQueueable
+
+    Bulk queueable behavior
+      BulkGoogleSyncQueueable
+        - chunk size: 40 events
+        - reloads event rows by Id
+        - for each event, resolves target calendar
+        - POST if External_Event_Id__c is blank
+        - PATCH if External_Event_Id__c exists
+        - updates Last_Synced_At__c, Sync_Status__c, Sync_Error__c,
+          External_Event_Id__c, Sync_Source__c
+
+    Export target resolution
+      - normal Team Calendar event:
+        target = Team_Calendar__c.Google_Calendar_Id__c
+      - imported Google event that already has Google_Source_Calendar_Id__c:
+        target = Google_Source_Calendar_Id__c
+
+    Outbound field mapping currently implemented
+      - summary      <- Calendar_Event__c.Name
+      - description  <- Calendar_Event__c.Notes__c
+      - start/end    <- Start__c / End__c
+      - all-day flag <- All_Day__c
+      - timed events exported in UTC
+
+
+4. IMPORT ARCHITECTURE (GOOGLE -> SALESFORCE)
+
+    Manual import flow
+      [User clicks Google > Salesforce]
+        -> choose Team Calendar target
+        -> connect Google if needed
+        -> choose one or more Google source calendars
+        -> runGoogleImportSync()
+        -> GoogleCalendarSyncService.importEventsFromGoogle(calendarId, visibleRange)
+
+    Import behavior
+      GoogleCalendarSyncService.importEventsFromGoogle(...)
+        -> requires Google_Sync_Enabled__c = true
+        -> reads Team_Calendar__c.Google_Import_Calendar_Ids__c
+        -> loads Google events for each selected import calendar
+        -> scans Google /events with:
+           * singleEvents=true
+           * showDeleted=true
+           * maxResults=250
+           * paginated up to 40 pages
+        -> maps Google events into Calendar_Event__c rows
+        -> upserts without an external Id field binding
+
+    Import matching key
+      - existing rows are matched by:
+        Google_Source_Calendar_Id__c + External_Event_Id__c
+
+    Import field mapping currently implemented
+      - Calendar__c                <- selected Team Calendar
+      - Name                       <- Google summary
+      - Notes__c                   <- Google description
+      - External_Event_Id__c       <- Google event id
+      - Google_Source_Calendar_Id__c <- source Google calendar id
+      - Sync_Source__c             <- 'Google'
+      - Sync_Status__c             <- 'Imported'
+      - Last_Synced_At__c          <- now()
+      - All_Day__c / Start__c / End__c from Google start/end blocks
+      - Status__c                  <- 'Cancelled' when Google says cancelled,
+                                      otherwise 'Confirmed' or 'Planned'
+
+
+5. SCHEDULED ARCHITECTURE
+
+    Scheduler entrypoint
+      GoogleCalendarSyncScheduler implements Schedulable
+
+    Configuration source
+      Google_Sync_Schedule__mdt (DeveloperName = Default)
+
+    Current default metadata
+      - Is_Enabled__c         = true
+      - Cron_Expression__c    = 0 0 * * * ?
+      - Run_Imports__c        = true
+      - Run_Exports__c        = true
+      - Past_Days__c          = 3
+      - Future_Days__c        = 30
+      - Calendars_Per_Queue__c = 5
+
+    Scheduled execution flow
+      GoogleCalendarSyncScheduler.execute()
+        -> load eligible Team Calendars
+        -> enqueue ScheduledSyncQueueable
+
+      ScheduledSyncQueueable.execute()
+        -> processes Team Calendars in batches
+        -> importEventsFromGoogle(...) for calendars with import ids
+        -> pushChangedEventsForCalendar(...) for calendars with export id
+        -> emails current user on collected failures
+
+    Changed-only export logic
+      Scheduled export includes events when:
+        - Last_Synced_At__c is null, or
+        - Sync_Status__c == 'Error', or
+        - LastModifiedDate is later than Last_Synced_At__c + 2 seconds grace
+
+
+6. CURRENT PERSISTENCE MODEL
+
+    Team_Calendar__c
+      - Google_Sync_Enabled__c
+      - Google_Calendar_Id__c
+      - Google_Import_Calendar_Ids__c
+        * JSON array string of Google source calendar ids
+
+    Calendar_Event__c
+      - External_Event_Id__c
+      - Google_Source_Calendar_Id__c
+      - Sync_Source__c
+      - Sync_Status__c
+      - Sync_Error__c
+      - Last_Synced_At__c
+
+    Config metadata
+      - Google_Sync_Schedule__mdt.Default
+
+    Supporting auth metadata/docs
+      - Auth Provider template
+      - External Credential template
+      - Named Credential template
+      - docs/GOOGLE_CALENDAR_NAMED_CREDENTIAL.md
+
+
+7. CURRENT USER EXPERIENCE MODEL
+
+    Export UX
+      - toolbar button opens export modal
+      - user chooses Team Calendar if not already selected
+      - user connects Google if needed
+      - user chooses one Google destination calendar
+      - sync is queued, not awaited synchronously in UI
+
+    Import UX
+      - toolbar button opens import modal
+      - user chooses Team Calendar if not already selected
+      - user connects Google if needed
+      - user checks one or more Google source calendars
+      - import runs immediately for the visible board date range
+
+    Eligibility rules
+      - only Team Calendar event calendars participate
+      - CalendarView-backed definitions are excluded from Google Sync
+      - calendarGoogleSyncState.js enforces this in the UI
+
+
+TXT LAYOUT
+----------
+
+RUNTIME FILE LAYOUT
+
+  docs/
+    GOOGLE_CALENDAR_NAMED_CREDENTIAL.md
+
+  force-app/main/default/classes/
+    GoogleCalendarConnectionService.cls
+    GoogleCalendarSyncService.cls
+    GoogleCalendarSyncScheduler.cls
+    GoogleCalendarConnectionServiceTest.cls
+    GoogleCalendarSyncServiceTest.cls
+    GoogleCalendarSyncSchedulerTest.cls
+
+  force-app/main/default/lwc/teamCalendarBoard/
+    calendarGoogleSyncController.js
+    calendarGoogleSyncState.js
+    teamCalendarBoard.js
+    teamCalendarBoard.html
+    __tests__/calendarGoogleSyncController.test.js
+
+  force-app/main/default/lwc/calendarGoogleSyncModals/
+    calendarGoogleSyncModals.js
+    calendarGoogleSyncModals.html
+
+  force-app/main/default/lwc/calendarToolbar/
+    calendarToolbar.js
+    calendarToolbar.html
+
+  force-app/main/default/customMetadata/
+    Google_Sync_Schedule.Default.md-meta.xml
+
+  force-app/main/default/objects/Team_Calendar__c/fields/
+    Google_Sync_Enabled__c
+    Google_Calendar_Id__c
+    Google_Import_Calendar_Ids__c
+
+  force-app/main/default/objects/Calendar_Event__c/fields/
+    External_Event_Id__c
+    Google_Source_Calendar_Id__c
+    Sync_Source__c
+    Sync_Status__c
+    Sync_Error__c
+    Last_Synced_At__c
+
+
+CURRENT FLOW SUMMARY
+
+  Connection
+    toolbar/modal -> connection service -> Named Credential -> Google probe
+
+  Export
+    toolbar/modal -> sync service -> queueable -> Google events POST/PATCH
+
+  Import
+    toolbar/modal -> sync service -> Google events GET -> Salesforce upsert
+
+  Schedule
+    metadata -> scheduler -> queueable -> import + changed-only export
+
+
+CURRENT GAPS AND RISKS
+----------------------
+
+1. Outbound sync is not automatically triggered by create/update/delete flows.
+   The current model depends on manual export or the scheduler.
+
+2. There is no outbound delete path to Google.
+   Existing code only POSTs and PATCHes; it does not DELETE remote events.
+
+3. Salesforce Status__c is not sent to Google.
+   A cancelled Salesforce event does not become a cancelled Google event today.
+
+4. Import source calendars are stored as JSON on Team_Calendar__c.
+   This works, but it is not a normalized relational model and cannot store
+   per-source sync state like tokens or webhook metadata.
+
+5. Import is range scan based, not incremental token based.
+   Manual import uses the visible board range. Scheduled import uses the
+   configured date window. Neither uses Google sync tokens.
+
+6. There is no durable sync-run history model.
+   Errors live on Calendar_Event__c and scheduler emails the current user, but
+   there is no dedicated operational audit object.
+
+7. Connection mode is hard-coded to NamedPrincipal.
+   Per-user Google identity is not currently exposed as a configuration mode.
+
+8. Export mapping is minimal.
+   No attendee, location, reminders, recurrence, organizer, or attachment
+   mapping is implemented.
+
+9. Conflict resolution is lightweight.
+   Imported Google events sync back to their source calendar, which helps avoid
+   wrong-target exports, but there is no full reconciliation or merge policy.
+
+10. Scheduler exists in code and metadata, but activation/operations are still
+    an admin/runtime concern rather than a surfaced product workflow.

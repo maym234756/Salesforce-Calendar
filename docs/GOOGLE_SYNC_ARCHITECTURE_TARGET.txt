@@ -1,0 +1,305 @@
+================================================================================
+GOOGLE SYNC - TARGET ARCHITECTURE (FINISH + ENHANCE)
+Reviewed: 2026-04-20
+================================================================================
+
+PURPOSE
+-------
+This document defines the target Google Sync architecture for finishing the
+current feature set and then enhancing it into a reliable, observable, and
+scalable sync subsystem.
+
+The design is phased on purpose:
+  Phase 1 finishes the missing core behaviors with limited disruption.
+  Phase 2 introduces stronger operational visibility and durability.
+  Phase 3 adds higher-end enhancements such as incremental sync and push.
+
+
+TARGET OUTCOMES
+---------------
+
+1. Google Sync becomes reliable for create, update, delete, undo, and import.
+2. Operators can see what ran, what failed, and what needs retry.
+3. Import no longer depends on repeated wide date-range scans forever.
+4. The architecture can absorb recurrence, richer field mapping, and real-time
+   Google change notifications without overloading teamCalendarBoard.
+
+
+ARCHITECT FORM
+--------------
+
+1. TARGET SYSTEM MAP
+
+    [User / Admin]
+       |
+       v
+    [calendarToolbar + calendarGoogleSyncModals + sync health UI]
+       |
+       v
+    [teamCalendarBoard Google Sync controller]
+       |
+       v
+    [GoogleSyncFacade]
+       |
+       +--------------------+------------------------+
+       |                    |                        |
+       v                    v                        v
+    [Connection]       [Sync Orchestrator]      [Admin / Ops]
+    service            - route import/export    - run history
+    - auth health      - dedupe work            - retry / resync
+    - calendar list    - enforce policies       - scheduler config status
+       |                    |                        |
+       |               +----+-----+                  |
+       |               |          |                  |
+       v               v          v                  v
+    [Google API]   [Export]   [Import]         [Sync Run Store]
+                    engine     engine
+                      |          |
+                      v          v
+                 [Durable queue] [Calendar link state]
+                      |          |
+                      +-----+----+
+                            |
+                            v
+                       [Google API]
+
+
+2. FINISH-BUILDING ARCHITECTURE (PHASE 1)
+
+    Goal
+      Keep the current feature recognizable, but close the missing reliability
+      and behavior gaps.
+
+    Proposed Apex service split
+      - GoogleSyncFacade.cls
+        * single entrypoint from LWC and mutation services
+      - GoogleCalendarApiClient.cls
+        * all HTTP callout building, response handling, and retry classification
+      - GoogleCalendarExportService.cls
+        * create/update/delete/cancel payload logic
+      - GoogleCalendarImportService.cls
+        * import mapping, import upsert, source matching
+      - GoogleSyncOrchestrator.cls
+        * queue orchestration, policy decisions, shared validation
+      - GoogleSyncStatusService.cls
+        * summary, last run, event status aggregation
+
+    Phase 1 behavior changes
+      - Add outbound delete handling.
+      - Add outbound cancel/status mapping.
+      - Auto-queue export work after create/update/delete/restore flows.
+      - Keep scheduled export as reconciliation, not the primary path.
+      - Keep existing Team_Calendar__c fields for compatibility.
+      - Keep current manual import/export buttons, but back them with the new
+        facade/orchestrator model.
+
+    Mutation integration target
+      TeamCalendarRecordMutationService / TeamCalendarUndoService
+        -> after successful DML
+        -> GoogleSyncFacade.enqueueEventChange(eventId, action)
+        -> queueable export pipeline
+
+
+3. ENHANCEMENT ARCHITECTURE (PHASE 2)
+
+    Goal
+      Make sync operationally safe and observable.
+
+    New persistence model
+
+      A. Google_Calendar_Link__c (new)
+         One record per Team Calendar <-> Google calendar relationship.
+
+         Suggested fields
+           - Team_Calendar__c
+           - Google_Calendar_Id__c
+           - Direction__c
+             values: Export, Import, Bidirectional
+           - Is_Primary_Export__c
+           - Is_Active__c
+           - Sync_Token__c
+           - Last_Imported_At__c
+           - Last_Exported_At__c
+           - Last_Status__c
+           - Last_Error__c
+           - Channel_Id__c           (future push support)
+           - Resource_Id__c          (future push support)
+           - Channel_Expires_At__c   (future push support)
+
+      B. Google_Sync_Run__c (new)
+         One record per manual, scheduled, retry, or reconciliation run.
+
+         Suggested fields
+           - Team_Calendar__c
+           - Google_Calendar_Link__c
+           - Direction__c
+           - Mode__c                 (Manual, Scheduled, Retry, Reconcile)
+           - Started_At__c
+           - Finished_At__c
+           - Status__c
+           - Processed_Count__c
+           - Inserted_Count__c
+           - Updated_Count__c
+           - Deleted_Count__c
+           - Error_Count__c
+           - Error_Summary__c
+           - Job_Id__c
+
+      C. Google_Sync_Queue__c (optional but recommended)
+         Durable outbox for pending exports and retries.
+
+         Suggested fields
+           - Calendar_Event__c
+           - Team_Calendar__c
+           - Action__c               (Create, Update, Delete, Restore)
+           - Status__c               (Pending, Processing, Done, Error, Retry)
+           - Retry_Count__c
+           - Next_Attempt_At__c
+           - Payload_Hash__c
+           - Last_Error__c
+
+    Why this enhancement layer matters
+      - JSON import-id storage on Team_Calendar__c cannot hold sync tokens.
+      - event-level status fields alone do not answer operational questions.
+      - a durable queue prevents mutation-time callout coupling and supports retry.
+
+
+4. ADVANCED ENHANCEMENT ARCHITECTURE (PHASE 3)
+
+    Goal
+      Reduce polling cost and support richer Google parity.
+
+    Phase 3 capabilities
+      - Incremental import with Google syncToken per import link.
+      - Optional Google push notifications / webhook renewal model.
+      - Recurrence mapping tied to CalendarRecurrenceService.
+      - Richer field mapping:
+        * location
+        * attendees
+        * reminders
+        * organizer / owner intent
+        * meeting links if supported by data model
+      - Conflict policy framework per link:
+        * Salesforce authoritative
+        * Google authoritative
+        * last-write-wins with audit
+      - Per-user principal option via metadata instead of hard-coded constant.
+
+
+TXT LAYOUT
+----------
+
+PROPOSED MODULE LAYOUT
+
+  force-app/main/default/classes/
+    GoogleSyncFacade.cls
+    GoogleSyncOrchestrator.cls
+    GoogleCalendarApiClient.cls
+    GoogleCalendarExportService.cls
+    GoogleCalendarImportService.cls
+    GoogleCalendarDeleteService.cls
+    GoogleSyncStatusService.cls
+    GoogleSyncRunService.cls
+    GoogleSyncRetryService.cls
+    GoogleCalendarConnectionService.cls          (keep, slim down)
+    GoogleCalendarSyncScheduler.cls             (keep, call facade)
+
+  optional future classes
+    GoogleCalendarWebhookService.cls
+    GoogleCalendarWebhookRestResource.cls
+    GoogleCalendarLinkService.cls
+
+  force-app/main/default/lwc/
+    teamCalendarBoard/
+      calendarGoogleSyncController.js           (UI orchestration only)
+      calendarGoogleSyncState.js                (UI view state only)
+    calendarGoogleSyncModals/                   (keep, enhance)
+    calendarGoogleSyncAdmin/                    (new admin/status surface)
+
+  force-app/main/default/objects/
+    Google_Calendar_Link__c/                    (new)
+    Google_Sync_Run__c/                         (new)
+    Google_Sync_Queue__c/                       (recommended)
+
+  force-app/main/default/customMetadata/
+    Google_Sync_Schedule__mdt                   (keep)
+    Google_Sync_Settings__mdt                   (new, connection mode / retry policy)
+
+
+TARGET FLOW LAYOUT
+
+  A. CREATE / UPDATE / DELETE / RESTORE OUTBOUND
+    record mutation succeeds
+      -> create queue item or enqueue facade work
+      -> orchestrator groups work by Team Calendar / Google link
+      -> export service builds Google payload
+      -> API client POST / PATCH / DELETE
+      -> sync run + event status updated
+
+  B. MANUAL IMPORT
+    toolbar import action
+      -> facade starts manual import run
+      -> import service pulls source links
+      -> API client GET Google events or delta feed
+      -> mapper upserts Calendar_Event__c
+      -> sync run summary returned to UI
+
+  C. SCHEDULED RECONCILIATION
+    scheduler
+      -> facade starts scheduled run
+      -> import delta for active import links
+      -> export changed queue items or changed events
+      -> retry failed work by policy
+      -> email / dashboard / run records capture outcome
+
+  D. FUTURE PUSH MODEL
+    Google change notification
+      -> Salesforce webhook endpoint
+      -> facade loads Google_Calendar_Link__c by channel/resource
+      -> queue incremental import by sync token
+
+
+PHASED DELIVERY PLAN
+--------------------
+
+PHASE 1 - COMPLETE THE CORE
+  1. Split GoogleCalendarSyncService into facade, export, import, and API client.
+  2. Add outbound delete and cancel handling.
+  3. Hook export queueing into TeamCalendarRecordMutationService and undo flows.
+  4. Standardize error handling and success messaging.
+  5. Keep current Team_Calendar__c storage model for backward compatibility.
+
+PHASE 2 - MAKE IT OPERABLE
+  1. Add Google_Sync_Run__c.
+  2. Add Google_Calendar_Link__c for normalized import/export links.
+  3. Move import-source state off Team_Calendar__c JSON.
+  4. Add durable retryable queue if event volume or failure patterns require it.
+  5. Add admin UI for last run, resync, retry, and scheduler state.
+
+PHASE 3 - ENHANCE FOR SCALE
+  1. Add incremental sync tokens.
+  2. Add webhook / push-channel support where org exposure allows it.
+  3. Add recurrence, richer field mapping, and conflict policy.
+  4. Add configurable NamedPrincipal vs PerUserPrincipal mode.
+
+
+DEFINITION OF DONE FOR THE TARGET DESIGN
+----------------------------------------
+
+1. Outbound sync runs for create, update, delete, and restore without waiting
+   for a user to manually press Salesforce > Google.
+
+2. Import is incremental for steady-state operation, with a fallback full
+   resync path for recovery.
+
+3. Every sync run has durable visibility: who ran it, what it touched, what
+   failed, and what needs retry.
+
+4. Each Team Calendar <-> Google calendar relationship is modeled explicitly,
+   not hidden inside a JSON string.
+
+5. teamCalendarBoard remains a UI orchestrator, not the place where sync
+   business logic accumulates.
+
+6. The design is ready for recurrence and richer Google parity instead of
+   forcing another rewrite when those features land.
